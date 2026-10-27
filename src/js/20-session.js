@@ -193,7 +193,7 @@ function quickRun() {
     const kindChip = cfg.mode === 'mix' ? h('span', { class: 'eyebrow kind' }, q.kind === 'flag' ? '🏳️ Flag' : q.kind === 'shape' ? '🗺️ Shape' : '🏛️ Capital') : null;
     if (q.kind === 'flag') {
       const im = imgCache[q.id] && imgCache[q.id].complete ? imgCache[q.id].cloneNode() : h('img', { src: c.flag });
-      im.className = 'flag'; im.alt = 'A flag'; im.width = 640; im.height = 480;
+      im.className = 'flag'; im.alt = 'A flag'; im.width = Math.round(c.ratio * 480); im.height = 480;
       stage.replaceChildren(...[kindChip, im].filter(Boolean));
     } else if (q.kind === 'shape') {
       stage.replaceChildren(...[kindChip, h('span', { class: 'reg' }, regionLabel(c.region)), shapeSvg(q.id, 'shape')].filter(Boolean));

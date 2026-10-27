@@ -56,17 +56,17 @@ async function typeActive(page, kind) {
 async function tapCountry(page, id) {
   for (let z = 0; z < 8; z++) {
     const pt = await page.evaluate((id) => {
-      const els = [...document.querySelectorAll('.map [data-id="' + id + '"]')].reverse(); // circle first
+      const els = [...document.querySelectorAll('.map [data-id="' + id + '"]')].filter((e) => e.style.display !== 'none' && e.getBoundingClientRect().width > 0).reverse(); // dots/boxes first
       const wrap = document.querySelector('.mapwrap').getBoundingClientRect();
-      const inside = (x, y) => x > wrap.left + 2 && x < wrap.right - 2 && y > wrap.top + 2 && y < wrap.bottom - 2 && !(x > wrap.right - 60 && y > wrap.bottom - 170); // not under the zoom buttons
+      const inside = (x, y) => x > wrap.left + 2 && x < wrap.right - 2 && y > wrap.top + 2 && y < wrap.bottom - 2 && !(x > wrap.right - 64 && y < wrap.top + 175); // not under the zoom buttons
       let zoomAt = null;
       for (const el of els) {
-        if (el.tagName === 'circle') { const r = el.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2; const hit = document.elementFromPoint(cx, cy); if (inside(cx, cy) && hit === el) return { x: cx, y: cy }; }
+        if (el.tagName === 'circle' || el.tagName === 'rect') { const r = el.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2; const hit = document.elementFromPoint(cx, cy); if (inside(cx, cy) && hit === el) return { x: cx, y: cy }; }
         const bb = el.getBBox(), m = el.getScreenCTM();
         for (let i = 1; i < 40; i++) for (let j = 1; j < 40; j++) {
           const p = new DOMPoint(bb.x + bb.width * i / 40, bb.y + bb.height * j / 40);
           if (el.isPointInFill && !el.isPointInFill(p)) continue;
-          const sp = p.matrixTransform(m);
+          const sp0 = p.matrixTransform(m), sp = { x: Math.round(sp0.x), y: Math.round(sp0.y) };
           if (!zoomAt) zoomAt = { x: sp.x, y: sp.y };
           if (!inside(sp.x, sp.y)) continue;
           const hit = document.elementFromPoint(sp.x, sp.y);
@@ -105,7 +105,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await page.screenshot({ path: path.join(outDir, label + '-02-setup.png'), fullPage: true }); await noSideScroll(page, label + ' setup');
     await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")');
     await page.waitForSelector('.tile.active');
-    ok((await page.$$('.tile')).length === 197, label + ': 197 flag tiles');
+    ok((await page.$$('.tile')).length === 196, label + ': 196 flag tiles');
     for (let i = 0; i < 4; i++) await typeActive(page, 'flag');
     const tiles = await page.$$('.tile:not(.done)');
     await tiles[30].click();
@@ -122,10 +122,10 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await page.screenshot({ path: path.join(outDir, label + '-03-flags-board.png') }); await noSideScroll(page, label + ' flags board');
     await page.click('button:has-text("Give up")'); await page.click('button:has-text("Give up and show me")');
     await page.waitForSelector('.tile.missed');
-    ok((await page.$$('.tile.missed')).length === 192, label + ': give up shows 192 missed');
+    ok((await page.$$('.tile.missed')).length === 191, label + ': give up shows 191 missed');
     await page.screenshot({ path: path.join(outDir, label + '-04-flags-gaveup.png') });
     await page.click('button:has-text("See results")'); await page.waitForSelector('.result-time');
-    ok((await page.textContent('.stat b')).trim() === '5/197', label + ': result 5/197');
+    ok((await page.textContent('.stat b')).trim() === '5/196', label + ': result 5/196');
     await page.screenshot({ path: path.join(outDir, label + '-05-result-flags.png'), fullPage: true }); await noSideScroll(page, label + ' result');
 
     // 2. Combined run, Europe: Map first (2 misses on the first, 3 strikes on the second), then Capitals all typed.
@@ -215,8 +215,8 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
       const id = await targetId(page); if (!id) break;
       total++;
       await resetView(page, 'start');
-      const ring = await page.evaluate((id) => { const c = document.querySelector('.map circle[data-id="' + id + '"]'); if (!c) return null; const r = c.getBoundingClientRect(), w = document.querySelector('.mapwrap').getBoundingClientRect();
-        const x = r.left + r.width / 2 + 3, y = r.top + r.height / 2 + 2; return x > w.left && x < w.right && y > w.top && y < w.bottom && !(x > w.right - 60 && y > w.bottom - 170) ? { x, y } : null; }, id);
+      const ring = await page.evaluate((id) => { const c = [...document.querySelectorAll('.map circle[data-id="' + id + '"], .map rect[data-id="' + id + '"]')].find((e) => e.style.display !== 'none'); if (!c) return null; const r = c.getBoundingClientRect(), w = document.querySelector('.mapwrap').getBoundingClientRect();
+        const x = r.left + r.width / 2 + 3, y = r.top + r.height / 2 + 2; return x > w.left && x < w.right && y > w.top && y < w.bottom && !(x > w.right - 64 && y < w.top + 175) ? { x, y } : null; }, id);
       if (ring) { await page.mouse.click(ring.x, ring.y); ringTaps++; } else await tapCountry(page, id);
       await page.waitForTimeout(40);
       if ((await targetId(page)) === id) { console.log('ring/tap missed ' + id, JSON.stringify(ring), await page.textContent('.maphint'), await page.getAttribute('svg.map', 'viewBox')); await tapCountry(page, id); }
@@ -226,6 +226,44 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     const st = (await page.textContent('.stat b')).trim();
     ok(st === total + '/' + total, region + ' islands: all found first time (' + st + ', ' + ringTaps + ' by ring)');
     ok(errors.length === 0, region + ': no page errors ' + JSON.stringify(errors));
+    await ctx.close();
+  }
+  // World map on a laptop: the Caribbean and Pacific insets work (tap Dominica, Tonga, … inside them).
+  if (!only || only === 'islands') {
+    const ctx = await b.newContext({ viewport: { width: 1366, height: 768 } });
+    const page = await ctx.newPage();
+    const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(BASE);
+    await setupBoard(page, ['Map'], 'World');
+    await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")'); await page.waitForSelector('.map .cty');
+    await page.waitForTimeout(300);
+    ok(await page.isVisible('.inset-left') && await page.isVisible('.inset-right'), 'world map shows the Caribbean and Pacific insets');
+    await page.screenshot({ path: path.join(outDir, 'world-insets.png') });
+    // Skip until a country that's in an inset comes up, then tap it there. Do that 5 times.
+    const inInset = await page.evaluate(() => [...new Set([...document.querySelectorAll('.inset [data-id]')].filter((e) => e.style.display !== 'none' && e.getBoundingClientRect().width > 0 && !e.classList.contains('off')).map((e) => e.getAttribute('data-id')))]);
+    ok(['dm', 'lc', 'to', 'fj', 'ws'].every((id) => inInset.includes(id)), 'Dominica, St Lucia, Tonga, Fiji and Samoa are in the insets');
+    let viaInset = 0;
+    for (let k = 0; k < 400 && viaInset < 5; k++) {
+      const id = await targetId(page);
+      if (!inInset.includes(id)) { await page.click('.prompt button:has-text("Skip")'); continue; }
+      const before = parseInt(await page.textContent('.found'), 10);
+      const pt = await page.evaluate((id) => {
+        for (const el of document.querySelectorAll('.inset [data-id="' + id + '"]')) {
+          if (el.style.display === 'none') continue;
+          const r = el.getBoundingClientRect(); if (!r.width) continue;
+          for (let i = 1; i < 10; i++) for (let j = 1; j < 10; j++) { const x = Math.round(r.left + r.width * i / 10), y = Math.round(r.top + r.height * j / 10); const hit = document.elementFromPoint(x, y); if (hit && hit.getAttribute('data-id') === id) return { x, y }; }
+        }
+        return null;
+      }, id);
+      if (!pt) { await page.click('.prompt button:has-text("Skip")'); continue; }
+      await page.mouse.click(pt.x, pt.y);
+      const okTap = parseInt(await page.textContent('.found'), 10) === before + 1;
+      if (!okTap) console.log('inset tap', id, JSON.stringify(pt), await page.textContent('.maphint'), await page.evaluate((p) => { const e = document.elementFromPoint(p.x, p.y); return e.outerHTML.slice(0, 90) + ' in ' + (e.closest('.inset') ? 'inset' : 'main'); }, pt));
+      ok(okTap, 'found ' + id + ' by tapping it in the inset');
+      viaInset++;
+    }
+    ok(viaInset === 5, 'tapped 5 countries inside the insets');
+    ok(errors.length === 0, 'world map: no page errors ' + JSON.stringify(errors));
     await ctx.close();
   }
   if (only === 'islands') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }

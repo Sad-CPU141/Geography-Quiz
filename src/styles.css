@@ -97,7 +97,7 @@ p{margin:0}
 .stage.bad{border-color:var(--danger);background:color-mix(in srgb,var(--danger) 14%,var(--panel))}
 .stage .kind{position:absolute;inset-block-start:10px;inset-inline-start:12px}
 .stage .reg{position:absolute;inset-block-start:10px;inset-inline-end:12px;font-size:13px;color:var(--muted)}
-.flag{max-width:100%;max-height:min(30vh,260px);width:auto;height:auto;border-radius:6px;box-shadow:0 0 0 2px rgba(255,255,255,.12),0 8px 24px rgba(0,0,0,.4);aspect-ratio:4/3;object-fit:contain;background:#fff}
+.flag{max-width:100%;max-height:min(30vh,260px);width:auto;height:auto;filter:drop-shadow(0 0 1px rgba(255,255,255,.55)) drop-shadow(0 8px 18px rgba(0,0,0,.45))}
 .shape{width:100%;max-width:420px;max-height:min(32vh,300px);margin-top:14px}
 .shape path{fill:var(--land);stroke:var(--sky);stroke-width:4;stroke-linejoin:round}
 .ask{font-family:var(--cond);font-weight:800;font-size:18px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-top:18px}
@@ -131,7 +131,7 @@ p{margin:0}
 .versus.lose{color:var(--danger)}
 .list{display:flex;flex-direction:column;gap:6px;margin:0;padding:0;list-style:none}
 .list li{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:12px;background:var(--panel2)}
-.list li .mini{width:44px;height:33px;flex:none;object-fit:contain;border-radius:3px;background:#fff}
+.list li .mini{width:44px;height:33px;flex:none;object-fit:contain}
 .list li svg.mini{background:none}
 .list li svg.mini path{fill:var(--land);stroke:var(--sky);stroke-width:10}
 .list li .q{flex:1;min-width:0}
@@ -182,7 +182,7 @@ p{margin:0}
 .typebar .input{flex:1;min-width:0;min-height:48px;font-size:19px}
 .typebar .iconbtn{width:42px;height:48px}
 .preview{width:84px;height:63px;flex:none;display:grid;place-items:center;border-radius:8px;background:var(--panel2);overflow:hidden}
-.preview img{width:100%;height:100%;object-fit:contain;background:#fff}
+.preview .flagbox{width:100%;height:100%;aspect-ratio:auto}
 .preview svg{width:100%;height:100%}
 .preview svg path{fill:var(--land);stroke:var(--sky);stroke-width:14;stroke-linejoin:round}
 .preview.name{width:auto;max-width:38%;padding:4px 8px;font-family:var(--cond);font-weight:800;font-size:17px;line-height:1.05;text-align:center}
@@ -194,7 +194,10 @@ p{margin:0}
 .tiles.t-shapes{--tw:140px}
 @media (min-width:700px){.tiles{--tw:180px}.tiles.t-capitals{--tw:190px}.tiles.t-shapes{--tw:180px}}
 .tile{display:flex;flex-direction:column;align-items:stretch;gap:6px;padding:8px;border-radius:14px;border:2px solid var(--line);background:var(--panel);scroll-margin-top:190px;scroll-margin-bottom:60px;text-align:center;min-width:0}
-.tile .pic{display:block;width:100%;height:auto;aspect-ratio:4/3;object-fit:contain;border-radius:4px;background:#fff}
+.tile .pic{display:block;width:100%;height:auto;aspect-ratio:4/3;object-fit:contain}
+/* a flag in its real shape, centred in the box, with a thin light edge (follows the shape, so Nepal stays Nepal) */
+.flagbox{display:flex !important;align-items:center;justify-content:center;aspect-ratio:3/2 !important;padding:4px}
+.flagbox img{max-width:100%;max-height:100%;width:auto;height:auto;filter:drop-shadow(0 0 1px rgba(255,255,255,.6))}
 .t-shapes .tile .pic{background:none}
 .t-shapes .tile .pic path{fill:var(--land);stroke:var(--sky);stroke-width:12;stroke-linejoin:round}
 .tile .pic.name{aspect-ratio:auto;background:none;font-family:var(--cond);font-weight:800;font-size:19px;line-height:1.1;min-height:2.6em;display:grid;place-items:center;border-radius:0;overflow-wrap:anywhere}
@@ -229,14 +232,12 @@ body.fullscreen{overflow:hidden}
 .map .land{fill:#3b3766;stroke:#2a2650;stroke-width:.6;vector-effect:non-scaling-stroke}
 .map .cty{fill:var(--land);stroke:#5a4f3a;stroke-width:.7;vector-effect:non-scaling-stroke;transition:fill .15s}
 .map .cty.off{fill:#4a4575;stroke:#36315f;pointer-events:none}
-.map .dot{fill:rgba(243,231,195,.25);stroke:var(--land);stroke-width:1.5;vector-effect:non-scaling-stroke}
 .map [data-st="g0"]{fill:var(--ok)}
 .map [data-st="g1"]{fill:#ffd23d}
 .map [data-st="g2"]{fill:#ff9a3d}
 .map [data-st="miss"]{fill:var(--danger)}
 .map [data-st="flash"]{fill:#ff8a99}
-.map .dot[data-st]{stroke:#fff}
-.zoom{position:absolute;inset-inline-end:10px;bottom:10px;display:flex;flex-direction:column;gap:6px}
+.zoom{position:absolute;inset-inline-end:10px;top:10px;display:flex;flex-direction:column;gap:6px}
 .zoom .iconbtn{width:44px;height:44px;background:color-mix(in srgb,var(--panel) 90%,transparent);font-size:22px}
 .reveal-bar.floating{position:absolute;inset-inline:0;bottom:calc(20px + env(safe-area-inset-bottom,0px));padding-inline:70px 16px}
 @media (min-width:900px){.app.map-run{padding-inline:24px}.map-run .bhead{margin-inline:-24px;padding-inline:24px}}
@@ -253,8 +254,6 @@ body.fullscreen{overflow:hidden}
 .map-run .maphint{text-align:start;min-height:1.3em}
 .map [data-st="must"]{fill:var(--danger);animation:mustpulse 0.9s ease-in-out infinite}
 @keyframes mustpulse{50%{fill:#ffd0d6}}
-.map .dot{fill:rgba(243,231,195,.18);stroke:#fff6d6;stroke-width:2}
-.map .dot[data-st="g0"],.map .dot[data-st="g1"],.map .dot[data-st="g2"],.map .dot[data-st="miss"],.map .dot[data-st="must"],.map .dot[data-st="flash"]{fill-opacity:.55}
 /* phone on its side: keep the map big — one compact header row */
 @media (max-height:520px) and (orientation:landscape){
   .map-run .bhead{flex-direction:row;flex-wrap:wrap;align-items:center;gap:4px 10px;padding-block:6px}
@@ -265,3 +264,17 @@ body.fullscreen{overflow:hidden}
   .map-run .maphint{flex:1 1 100%;font-size:13px;min-height:0}
   .map-run .bhead .iconbtn,.map-run .btn.giveup{min-height:38px;height:38px}
 }
+
+/* Seterra-style small-country markers and insets */
+.map .dot{fill:#fff;stroke:#1b1838;stroke-width:1.2;vector-effect:non-scaling-stroke}
+.map .zone{fill:transparent;stroke:#fff;stroke-width:1.3;stroke-dasharray:4 3;vector-effect:non-scaling-stroke;pointer-events:all}
+.map .zone[data-st]{fill:transparent}
+.map .zone[data-st="g0"]{stroke:var(--ok)}.map .zone[data-st="g1"]{stroke:#ffd23d}.map .zone[data-st="g2"]{stroke:#ff9a3d}
+.map .zone[data-st="miss"],.map .zone[data-st="must"],.map .zone[data-st="flash"]{stroke:var(--danger);stroke-width:2.5}
+.inset{position:absolute;bottom:0;height:27%;max-width:42%;border:2px solid #fff;background:#16365f;overflow:hidden;z-index:2}
+.inset[hidden]{display:none}
+.inset-left{inset-inline-start:0;border-left:0;border-bottom:0;border-top-right-radius:12px}
+.inset-right{inset-inline-end:0;border-right:0;border-bottom:0;border-top-left-radius:12px}
+.inset .map{width:100%;height:100%;touch-action:manipulation}
+.inset-name{position:absolute;top:4px;inset-inline-start:8px;font-family:var(--cond);font-weight:800;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.7);pointer-events:none}
+.mapwrap .zoom{z-index:3}

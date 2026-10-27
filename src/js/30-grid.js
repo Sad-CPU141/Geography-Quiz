@@ -2,7 +2,9 @@
    Every country is a tile. One tile is selected; type its answer and it fills in and the next empty tile is
    selected. Tap any tile (or ◀ ▶) to switch. */
 function tilePic(game, id) {
-  if (game === 'flags') return h('img', { class: 'pic', src: BY_ID[id].flag, alt: 'A flag', loading: 'lazy', width: 64, height: 48 });
+  // Flags keep their real proportions (Monaco 5:4, Indonesia 3:2, Qatar 28:11, Nepal's two pennants…), centred in
+  // the same-size box.
+  if (game === 'flags') return h('span', { class: 'pic flagbox' }, h('img', { src: BY_ID[id].flag, alt: 'A flag', loading: 'lazy', width: Math.round(BY_ID[id].ratio * 100), height: 100 }));
   if (game === 'shapes') return shapeSvg(id, 'pic');
   return h('span', { class: 'pic name' }, BY_ID[id].name);
 }

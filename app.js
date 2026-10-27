@@ -1,7 +1,7 @@
-/* Geography Speedrun 659954dfc7 — built from src/js/ by build.js. Edit src/, not this file. */
+/* Geography Speedrun de0b0fb304 — built from src/js/ by build.js. Edit src/, not this file. */
 (function () {
 'use strict';
-const APP_VERSION = "659954dfc7";
+const APP_VERSION = "de0b0fb304";
 /* ---- core: data, answer matching, runs, challenge codes (no DOM; tested by tests/run.js) ---- */
 const DATA = window.GS_DATA.countries;
 const BY_ID = Object.fromEntries(DATA.map((c) => [c.id, c]));
@@ -317,7 +317,7 @@ function home() {
       h('button', { class: 'btn primary', onclick: setup }, '▶ New run'),
       h('button', { class: 'btn ghost', onclick: codeEntry }, '🔑 Enter a challenge code'),
       h('button', { class: 'btn ghost', onclick: bests }, '⏱ Best times')),
-    h('div', { class: 'foot' }, h('a', { href: '../' }, '← Game Night'), ' · ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); credits(); } }, 'Credits'), ' · 197 countries'),
+    h('div', { class: 'foot' }, h('a', { href: '../' }, '← Game Night'), ' · ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); credits(); } }, 'Credits'), ' · ' + DATA.length + ' countries'),
   ));
   S.badLink = false;
 }
@@ -427,7 +427,7 @@ function bests() {
 function credits() {
   const bg = modal(h('h2', { class: 'display' }, 'Credits'),
     h('p', { class: 'small' }, 'Flags: flag-icons (MIT licence). Maps and country outlines: Natural Earth (public domain) via world-atlas (ISC). Names and capitals: world-countries by mledoze (ODbL 1.0). Some outlines are cropped to the main territory. Licence texts are in the licenses folder.'),
-    h('p', { class: 'small muted' }, '197 countries: the 193 UN members, Vatican City and Palestine (UN observers), Kosovo and Taiwan. Where a country has more than one capital or a separate seat of government, either one counts. Grey areas on the map (like Greenland or Western Sahara) aren\'t in the game.'),
+    h('p', { class: 'small muted' }, DATA.length + ' countries: the UN member states except Israel, Vatican City and Palestine (UN observers), Kosovo and Taiwan. Flags are shown in their real proportions. Where a country has more than one capital or a separate seat of government, either one counts. Grey areas on the map (like Greenland or Western Sahara) aren\'t in the game.'),
     h('button', { class: 'btn ghost small', onclick: () => bg.remove() }, 'Close'));
 }
 
@@ -626,7 +626,7 @@ function quickRun() {
     const kindChip = cfg.mode === 'mix' ? h('span', { class: 'eyebrow kind' }, q.kind === 'flag' ? '🏳️ Flag' : q.kind === 'shape' ? '🗺️ Shape' : '🏛️ Capital') : null;
     if (q.kind === 'flag') {
       const im = imgCache[q.id] && imgCache[q.id].complete ? imgCache[q.id].cloneNode() : h('img', { src: c.flag });
-      im.className = 'flag'; im.alt = 'A flag'; im.width = 640; im.height = 480;
+      im.className = 'flag'; im.alt = 'A flag'; im.width = Math.round(c.ratio * 480); im.height = 480;
       stage.replaceChildren(...[kindChip, im].filter(Boolean));
     } else if (q.kind === 'shape') {
       stage.replaceChildren(...[kindChip, h('span', { class: 'reg' }, regionLabel(c.region)), shapeSvg(q.id, 'shape')].filter(Boolean));
@@ -679,7 +679,9 @@ function quickRun() {
    Every country is a tile. One tile is selected; type its answer and it fills in and the next empty tile is
    selected. Tap any tile (or ◀ ▶) to switch. */
 function tilePic(game, id) {
-  if (game === 'flags') return h('img', { class: 'pic', src: BY_ID[id].flag, alt: 'A flag', loading: 'lazy', width: 64, height: 48 });
+  // Flags keep their real proportions (Monaco 5:4, Indonesia 3:2, Qatar 28:11, Nepal's two pennants…), centred in
+  // the same-size box.
+  if (game === 'flags') return h('span', { class: 'pic flagbox' }, h('img', { src: BY_ID[id].flag, alt: 'A flag', loading: 'lazy', width: Math.round(BY_ID[id].ratio * 100), height: 100 }));
   if (game === 'shapes') return shapeSvg(id, 'pic');
   return h('span', { class: 'pic name' }, BY_ID[id].name);
 }
@@ -805,8 +807,10 @@ function spellingHelp(input, el, kindOf, currentId, onRight) {
 /* ---- the Map game (Seterra style) ----
    The whole map (or the region). It names a country; tap it. Right first time = green, second = yellow,
    third = orange; three wrong taps and it turns red, counts as missed, and you have to tap it to go on (like
-   Seterra). Pinch / drag / scroll to zoom and pan, or use the + − buttons. Small island countries and microstates
-   have a ring round them that you can tap; a tap in the sea just next to a ring counts as that ring. */
+   Seterra). Pinch / drag / scroll to zoom and pan, or use the + − buttons.
+   Small countries, Seterra style: a little white dot where a country is too small to see, a dashed box round a
+   spread-out island group, and (on the world map, on a big enough screen) magnified Caribbean and Pacific boxes.
+   A tap on the sea just next to a dot or box counts for it. */
 function mapGame(api) {
   const { sec, res } = api;
   const M = window.GS_MAP, view = M.views[S.session.cfg.region], m = M[view.map];
@@ -816,23 +820,40 @@ function mapGame(api) {
   let revealed = false, ended = false, must = null; // must = a missed country you have to tap to go on
 
   /* ---- drawing ---- */
-  const els = {}; // id → [path, circle?]
-  const g = h('g', null);
-  g.appendChild(h('path', { class: 'land', d: m.land }));
-  Object.entries(m.c).forEach(([id, d]) => {
-    const p = h('path', { class: 'cty' + (playable.has(id) ? '' : ' off'), d, 'data-id': id });
-    g.appendChild(p); els[id] = [p];
-  });
-  const dots = h('g', null);
-  const rings = [];
-  Object.entries(m.dot).forEach(([id, [x, y, rr]]) => {
-    if (!playable.has(id)) return;
-    const c = h('circle', { class: 'dot', cx: x, cy: y, r: 8, 'data-id': id });
-    dots.appendChild(c); els[id].push(c); rings.push({ id, x, y, rr: rr || 0, el: c });
-  });
+  const els = {}; // id → every element showing that country (map paths, inset paths, dots, boxes)
+  const addEl = (id, el) => (els[id] = els[id] || []).push(el);
+  // Countries, grey land, and marker elements for one map (the main one or an inset).
+  function layer(md, where) {
+    const zones = h('g', null), g = h('g', null), dots = h('g', null), markers = [];
+    g.appendChild(h('path', { class: 'land', d: md.land }));
+    Object.entries(md.c).forEach(([id, d]) => {
+      const p = h('path', { class: 'cty' + (playable.has(id) ? '' : ' off'), d, 'data-id': id });
+      g.appendChild(p); if (playable.has(id)) addEl(id, p);
+    });
+    Object.entries(md.mk || {}).forEach(([id, [x0, y0, x1, y1, cx, cy, area, island]]) => {
+      if (!playable.has(id)) return;
+      const dot = h('circle', { class: 'dot', cx, cy, r: 1, 'data-id': id, style: { display: 'none' } });
+      const zone = h('rect', { class: 'zone', x: x0, y: y0, width: x1 - x0, height: y1 - y0, 'data-id': id, style: { display: 'none' } });
+      dots.appendChild(dot); zones.appendChild(zone); addEl(id, dot); addEl(id, zone);
+      markers.push({ id, x0, y0, x1, y1, cx, cy, area, island, dot, zone, where });
+    });
+    return { nodes: [zones, g, dots], markers };
+  }
+  const main = layer(m, 'main');
   const svg = h('svg', { class: 'map', role: 'img', 'aria-label': 'World map', preserveAspectRatio: 'xMidYMid meet' },
-    h('rect', { class: 'sea', x: -m.w, y: -m.h, width: m.w * 3, height: m.h * 3 }), g, dots);
-  const wrap = h('div', { class: 'mapwrap' }, svg,
+    h('rect', { class: 'sea', x: -m.w, y: -m.h, width: m.w * 3, height: m.h * 3 }), ...main.nodes);
+  // Magnified boxes (world map only).
+  const insets = (view.insets || []).map((ins) => {
+    const md = M[ins.map], L = layer(md, ins.name);
+    const isvg = h('svg', { class: 'map', viewBox: ins.box.join(' '), preserveAspectRatio: 'xMidYMid slice' },
+      h('rect', { class: 'sea', x: ins.box[0] - 50, y: ins.box[1] - 50, width: ins.box[2] + 100, height: ins.box[3] + 100 }), ...L.nodes);
+    const box = h('div', { class: 'inset inset-' + ins.where, style: { aspectRatio: ins.box[2] + ' / ' + ins.box[3] } }, isvg, h('span', { class: 'inset-name' }, ins.name));
+    isvg.addEventListener('click', (e) => tap(e.clientX, e.clientY));
+    // Countries this box covers: their dots/boxes are hidden on the main map while it's showing.
+    const covered = new Set(L.markers.filter((k) => k.cx >= ins.box[0] && k.cx <= ins.box[0] + ins.box[2] && k.cy >= ins.box[1] && k.cy <= ins.box[1] + ins.box[3]).map((k) => k.id));
+    return { ins, box, svg: isvg, markers: L.markers, covered, shown: false };
+  });
+  const wrap = h('div', { class: 'mapwrap' }, svg, ...insets.map((i) => i.box),
     h('div', { class: 'zoom' },
       h('button', { class: 'iconbtn', 'aria-label': 'Zoom in', onclick: () => zoomBy(0.6) }, '+'),
       h('button', { class: 'iconbtn', 'aria-label': 'Zoom out', onclick: () => zoomBy(1 / 0.6) }, '−'),
@@ -878,13 +899,28 @@ function mapGame(api) {
     const s = size();
     svg.setAttribute('viewBox', [vb.x, vb.y, vb.w, vb.h].map((v) => Math.round(v * 10) / 10).join(' '));
     const px = vb.w / s.w; // map units per screen pixel
-    // Ring size on screen: 15 px, but never so big that it overlaps a neighbour (crowded places like the Lesser
-    // Antilles get smaller rings until you zoom in), and always big enough to hold its island group.
-    rings.forEach((r) => {
-      let dn = Infinity;
-      rings.forEach((o) => { if (o !== r) dn = Math.min(dn, Math.hypot(o.x - r.x, o.y - r.y) / px); });
-      r.sr = Math.max(7, Math.min(15, dn / 2 - 1)); // screen px
-      r.el.setAttribute('r', String(Math.max(r.sr * px, r.rr + 3 * px)));
+    // Insets show on the world map when the screen is big enough and you haven't zoomed in.
+    const showInsets = s.w >= 620 && s.h >= 380 && vb.w >= base.w * 0.8;
+    insets.forEach((i) => {
+      i.shown = showInsets; i.box.hidden = !showInsets;
+      if (showInsets) { const r = i.svg.getBoundingClientRect(); placeMarkers(i.markers, i.ins.box[2] / (r.width || 1), () => false); }
+    });
+    placeMarkers(main.markers, px, (id) => insets.some((i) => i.shown && i.covered.has(id)));
+  }
+  // Dot or dashed box for each small country, from how big it is on screen right now.
+  function placeMarkers(list, px, hidden) {
+    list.forEach((k) => {
+      const sw = (k.x1 - k.x0) / px, sh = (k.y1 - k.y0) / px, big = Math.max(sw, sh);
+      let mode = '';
+      if (!hidden(k.id)) {
+        if (big < 9) mode = 'dot';
+        else if (k.island && k.area / (px * px) < 0.15 * sw * sh) mode = 'zone'; // spread-out island group
+      }
+      k.mode = mode;
+      k.dot.style.display = mode === 'dot' ? '' : 'none';
+      k.zone.style.display = mode === 'zone' ? '' : 'none';
+      if (mode === 'dot') k.dot.setAttribute('r', String(4.5 * px));
+      if (mode === 'zone') { const pad = 5 * px; k.zone.setAttribute('x', k.x0 - pad); k.zone.setAttribute('y', k.y0 - pad); k.zone.setAttribute('width', k.x1 - k.x0 + 2 * pad); k.zone.setAttribute('height', k.y1 - k.y0 + 2 * pad); k.zone.setAttribute('rx', 4 * px); }
     });
   }
   function zoomAt(f, cx, cy) { // cx, cy: screen point that stays put
@@ -947,19 +983,28 @@ function mapGame(api) {
     if (revealed || must || ended || queue.length < 2) return;
     queue.push(queue.shift()); ask();
   }
-  // Which country a tap means: the country (or ring) under the finger; on the sea, the nearest ring within reach
-  // (Seterra-style forgiving taps for small islands).
+  // Which country a tap means: the country (or dot / box) under the finger; on the sea, the nearest dot or box
+  // within 16 px (Seterra-style forgiving taps for small islands). Inside an inset, only that inset counts.
   function pickAt(x, y) {
     const el = document.elementFromPoint(x, y);
     const hit = el && el.closest && el.closest('[data-id]');
     const id = hit && hit.getAttribute('data-id');
-    if (id && playable.has(id)) return id; // a country or its ring right under the finger
-    const s = size(), px = vb.w / s.w;
-    let best = null, bestD = Infinity;
-    rings.forEach((r) => {
-      const sx = s.left + (r.x - vb.x) / px, sy = s.top + (r.y - vb.y) / px;
-      const d = Math.hypot(sx - x, sy - y), reach = Math.max(r.sr || 15, r.rr / px + 3) + 8;
-      if (d <= reach && d < bestD) { bestD = d; best = r.id; }
+    if (id && playable.has(id)) return id;
+    // Just missed a small coastline? Look a few pixels around the finger for a country before giving up.
+    for (const r of [3, 6, 10]) for (let k = 0; k < 8; k++) {
+      const a = k * Math.PI / 4, e2 = document.elementFromPoint(x + r * Math.cos(a), y + r * Math.sin(a));
+      const h2 = e2 && e2.closest && e2.closest('[data-id]'), id2 = h2 && h2.getAttribute('data-id');
+      if (id2 && playable.has(id2) && !h2.classList.contains('zone') && (e2.closest('.inset') || null) === (el && el.closest ? el.closest('.inset') : null)) return id2;
+    }
+    const inInset = el && el.closest && el.closest('.inset');
+    const list = inInset ? (insets.find((i) => i.box === inInset) || { markers: [] }).markers : main.markers;
+    let best = null, bestD = 16;
+    list.forEach((k) => {
+      if (!k.mode) return;
+      const r = (k.mode === 'dot' ? k.dot : k.zone).getBoundingClientRect();
+      const dx = Math.max(r.left - x, 0, x - r.right), dy = Math.max(r.top - y, 0, y - r.bottom);
+      const d = Math.hypot(dx, dy);
+      if (d < bestD) { bestD = d; best = k.id; }
     });
     return best || id;
   }
@@ -995,8 +1040,9 @@ function mapGame(api) {
   }
   // Make sure the missed country is on screen (zoom out to the region view if it isn't).
   function showMust(id) {
-    const r = els[id][els[id].length - 1].getBoundingClientRect(), w = wrap.getBoundingClientRect();
-    if (r.right < w.left || r.left > w.right || r.bottom < w.top || r.top > w.bottom) fit(true);
+    const w = wrap.getBoundingClientRect();
+    const seen = els[id].some((el) => { const r = el.getBoundingClientRect(); return r.width + r.height > 0 && r.right > w.left && r.left < w.right && r.bottom > w.top && r.top < w.bottom; });
+    if (!seen) fit(true);
   }
   requestAnimationFrame(() => fit(false));
   count(); ask();

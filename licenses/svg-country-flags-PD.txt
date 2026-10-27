@@ -1,0 +1,2 @@
+Flag SVGs from svg-country-flags (https://github.com/hjnilsson/country-flags), taken from Wikipedia.
+The package is marked public domain ("PD"): flags are generally not under copyright. Use of national flags may have other legal restrictions.

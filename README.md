@@ -10,7 +10,7 @@ A Game Night game: geography against the clock.
   - Give up any time to see what you missed. Most found wins; the faster time breaks a tie.
 - **Spelling help** (optional): "Did you mean …?" when you're close.
 - **Quick fire**: one question at a time, type it or pick from 4, with time penalties.
-- Regions: World (197), Africa, Asia, Europe, North & Central America, South America, Oceania.
+- Regions: World (196), Africa, Asia, Europe, North & Central America, South America, Oceania.
 - **Challenge a friend:** every run has an 8-character code. Send the link and your friend gets exactly the same run, with your score to beat.
 - **Pass the phone:** 2–8 players take turns on the same run, then see a leaderboard.
 - Best times are kept on the device. Works offline once opened.

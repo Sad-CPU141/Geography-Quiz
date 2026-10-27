@@ -14,9 +14,8 @@ const nm = (p) => path.join(root, 'node_modules', p);
 const MERGE = { Somaliland: 'so', 'N. Cyprus': 'cy', 'Cyprus U.N. Buffer Zone': 'cy', Kosovo: 'xk', 'Hong Kong': 'cn', Macao: 'cn', 'Åland': 'fi' };
 const W = 2000;
 const EPS = 0.3; // simplification tolerance in map pixels
-// Seterra-style rings: a tappable circle round small countries — microstates (area below TINY) and island
-// countries (no land border) below ISLAND. Areas are px² on the 2000-px-wide world map.
-const TINY = 30, ISLAND = 320;
+// Countries smaller than this (px² on the 2000-px-wide map) get marker data (dot / dashed box), see build().
+const SMALL = 400;
 
 // Region views as lon/lat boxes [lonMin, lonMax, latMin, latMax].
 const VIEWS = {
@@ -97,27 +96,31 @@ const TIGHT = {
     proj.fitWidth(W, { type: 'Sphere' });
     const H = Math.ceil(d3.geoPath(proj).bounds({ type: 'Sphere' })[1][1]);
     const path0 = d3.geoPath(proj);
-    const c = {}, dot = {}, area = {}, cent = {}, bb = {}; let land = '';
+    const c = {}, mk = {}, area = {}, parts = {}; let land = '';
     feats.forEach((f) => {
       if (keep && !keep(f)) return;
       const id = idOf(f);
       const d = draw(proj, f);
       if (!id) { land += d; return; }
       c[id] = (c[id] || '') + d;
-      const a = path0.area(f);
-      area[id] = (area[id] || 0) + a;
-      if (!cent[id] || a > cent[id][2]) cent[id] = [...path0.centroid(f), a];
-      const [[x0, y0], [x1, y1]] = path0.bounds(f);
-      bb[id] = bb[id] ? [Math.min(bb[id][0], x0), Math.min(bb[id][1], y0), Math.max(bb[id][2], x1), Math.max(bb[id][3], y1)] : [x0, y0, x1, y1];
+      area[id] = (area[id] || 0) + path0.area(f);
+      const polys = f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates : [f.geometry.coordinates];
+      (parts[id] = parts[id] || []).push(...polys.map((p) => { const g = { type: 'Polygon', coordinates: p }; return { a: path0.area(g), c: path0.centroid(g), b: path0.bounds(g) }; }));
     });
-    // dot[id] = [x, y, r]: ring centre and the radius (map units) that covers the island group, when it's compact.
+    // Seterra-style markers for small countries: mk[id] = [x0, y0, x1, y1, cx, cy, area, island]. The box covers the
+    // island group (parts within 250 px of the biggest part, so Kiribati doesn't stretch across the whole map);
+    // cx, cy = the biggest part's centre. The game decides, from how big they are on screen, whether to draw a small
+    // white dot (too small to see or tap) or a dashed box (a spread-out archipelago).
     Object.keys(c).forEach((id) => {
-      if (!(area[id] < TINY || (island.has(id) && area[id] < ISLAND))) return;
-      const [x0, y0, x1, y1] = bb[id], w = x1 - x0, hh = y1 - y0;
-      if (Math.max(w, hh) < 50) dot[id] = [r1((x0 + x1) / 2), r1((y0 + y1) / 2), r1(Math.hypot(w, hh) / 2)];
-      else dot[id] = [r1(cent[id][0]), r1(cent[id][1]), 0];
+      if (area[id] >= SMALL) return;
+      const ps = parts[id].filter((p) => p.a > 0 || parts[id].length === 1).sort((x, y) => y.a - x.a);
+      const main = ps[0] || parts[id][0];
+      const near = ps.filter((p) => Math.hypot(p.c[0] - main.c[0], p.c[1] - main.c[1]) < 250);
+      const b = [Infinity, Infinity, -Infinity, -Infinity];
+      near.forEach((p) => { b[0] = Math.min(b[0], p.b[0][0]); b[1] = Math.min(b[1], p.b[0][1]); b[2] = Math.max(b[2], p.b[1][0]); b[3] = Math.max(b[3], p.b[1][1]); });
+      mk[id] = [...b.map(r1), r1(main.c[0]), r1(main.c[1]), r1(area[id]), island.has(id) ? 1 : 0];
     });
-    return { proj, map: { w: W, h: H, land, c, dot } };
+    return { proj, map: { w: W, h: H, land, c, mk } };
   }
   const world = build([0, 0]);
   const lonOf = (f) => d3.geoCentroid(f)[0];
@@ -137,11 +140,21 @@ const TIGHT = {
       return [Math.round(x0), Math.round(y0), Math.round(x1 - x0), Math.round(y1 - y0)];
     };
     views[reg] = { map: which, box: box ? boxOf(box) : [0, 0, map.w, map.h], tight: boxOf(TIGHT[reg]) };
+    if (reg === 'world') {
+      // Seterra-style magnified boxes on the world map, for the places that are too small to tap at world size.
+      const pBox = (b) => { const { proj: pp } = pacific; let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+        for (let i = 0; i <= 20; i++) for (let j = 0; j <= 20; j++) { const q = pp([b[0] + (b[1] - b[0]) * i / 20, b[2] + (b[3] - b[2]) * j / 20]); x0 = Math.min(x0, q[0]); x1 = Math.max(x1, q[0]); y0 = Math.min(y0, q[1]); y1 = Math.max(y1, q[1]); }
+        return [Math.round(x0), Math.round(y0), Math.round(x1 - x0), Math.round(y1 - y0)]; };
+      views[reg].insets = [
+        { name: 'Caribbean', map: 'world', box: boxOf([-86, -59, 9.5, 27.5]), where: 'left' },
+        { name: 'Pacific', map: 'pacific', box: pBox([130, 208, -24, 14]), where: 'right' },
+      ];
+    }
     // Every country of the region must be on that map.
     DATA.filter((x) => x.region === reg).forEach((x) => { if (!map.c[x.id]) throw new Error(x.id + ' missing on ' + which + ' map'); });
   }
   const js = '/* World map for the Map game, generated by tools/map.js — do not edit by hand.\n   Natural Earth (public domain) via world-atlas (ISC). */\nwindow.GS_MAP = ' +
     JSON.stringify({ world: world.map, pacific: pacific.map, views }) + ';\n';
   fs.writeFileSync(path.join(root, 'src/map.js'), js);
-  console.log('map: ' + Math.round(js.length / 1024) + ' KB · dots: ' + Object.keys(world.map.dot).join(' '));
+  console.log('map: ' + Math.round(js.length / 1024) + ' KB · small: ' + Object.keys(world.map.mk).join(' '));
 })().catch((e) => { console.error(e); process.exit(1); });

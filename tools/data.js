@@ -2,7 +2,7 @@
 // Inputs (all build-time only; nothing is loaded from them at runtime):
 //  · world-countries (ODbL 1.0, mledoze/countries): names, other spellings, capitals, regions
 //  · world-atlas (ISC) = Natural Earth (public domain): country outlines, drawn with d3-geo
-//  · flag-icons (MIT): flag pictures
+//  · svg-country-flags (public domain; Wikipedia's flag SVGs): flag pictures in their real proportions and colours
 // Outputs:
 //  · src/data.js     window.GS_DATA = { countries: [...] } (outline paths inline)
 //  · flags/*.svg     one file per flag, named by content hash so the file name never gives the answer
@@ -14,8 +14,10 @@ const crypto = require('crypto');
 const root = path.join(__dirname, '..');
 const nm = (p) => path.join(root, 'node_modules', p);
 
-// 193 UN members + the 2 UN observer states + Kosovo and Taiwan = 197 (the usual "all countries" quiz list).
+// 193 UN members + the 2 UN observer states + Kosovo and Taiwan, minus the countries the owner left out of the game.
 const EXTRA = ['VA', 'PS', 'XK', 'TW'];
+const LEAVE_OUT = ['IL']; // owner's decision: Israel is not in the game
+const COUNT = 196;
 
 // Names people actually type, on top of the data's own spellings.
 const NAME_ALIASES = {
@@ -120,14 +122,23 @@ const BOX = {
 // No automatic crop (archipelagos where the spread IS the shape).
 const KEEP_ALL = new Set(['ID', 'PH', 'JP', 'GR', 'HR', 'MV', 'BS', 'SB', 'VU', 'TO', 'MH', 'TV', 'FM', 'KI', 'CV', 'ST', 'KM', 'SC', 'TT', 'AG', 'KN', 'VC', 'GD', 'PW', 'WS', 'MT', 'MY', 'CA', 'TL', 'PG', 'GQ', 'NR']);
 
+// Flags that changed after svg-country-flags was last updated (2021): taken from flag-icons (MIT, kept current),
+// which only has a 4:3 version, and widened back to the real proportions.
+//  · Kyrgyzstan: new flag from December 2023 (straight sun rays), 5:3.
+//  · Syria: the green-white-black flag with three red stars, in official use since 2025, 3:2.
+const fromFlagIcons = (cc) => fs.readFileSync(nm('flag-icons/flags/4x3/' + cc + '.svg'), 'utf8').replace(/^[\s\S]*?<svg[^>]*>/, '').replace(/<\/svg>\s*$/, '').replace(/\s+id="flag-icons-[a-z-]+"/, '');
+const NEWER_FLAGS = {
+  KG: () => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 480"><rect width="800" height="480" fill="#e8112d"/><g transform="translate(80 0)">' + fromFlagIcons('kg').replace(/fill="red"/g, 'fill="#e8112d"').replace(/fill="#ff0"/g, 'fill="#ffef00"') + '</g></svg>',
+  SY: () => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 480"><rect width="720" height="480"/><rect width="720" height="320" fill="#fff"/><rect width="720" height="160" fill="#007a3d"/><g transform="translate(40 0)">' + fromFlagIcons('sy').replace(/<path d="M0 0h640v480H0Z"\/>|<path fill="#fff" d="M0 0h640v320H0Z"\/>|<path fill="#007a3d" d="M0 0h640v160H0Z"\/>/g, '') + '</g></svg>',
+};
 const sha = (buf) => crypto.createHash('sha1').update(buf).digest('hex').slice(0, 12);
 
 (async () => {
   const d3 = await import('d3-geo');
   const topo = await import('topojson-client');
   const countries = require(nm('world-countries/countries.json'));
-  const sel = countries.filter((c) => c.unMember || EXTRA.includes(c.cca2));
-  if (sel.length !== 197) throw new Error('Expected 197 countries, got ' + sel.length);
+  const sel = countries.filter((c) => (c.unMember || EXTRA.includes(c.cca2)) && !LEAVE_OUT.includes(c.cca2));
+  if (sel.length !== COUNT) throw new Error('Expected ' + COUNT + ' countries, got ' + sel.length);
 
   const load = (res) => { const w = require(nm('world-atlas/countries-' + res + '.json')); return topo.feature(w, w.objects.countries).features; };
   const f50 = load('50m'), f10 = load('10m');
@@ -218,7 +229,18 @@ const sha = (buf) => crypto.createHash('sha1').update(buf).digest('hex').slice(0
   const out = sel.map((c) => {
     const cc = c.cca2;
     // Flag file (id attribute removed: it contains the country code).
-    let svg = fs.readFileSync(nm('flag-icons/flags/4x3/' + cc.toLowerCase() + '.svg'), 'utf8').replace(/\s+id="flag-icons-[a-z-]+"/, '');
+    // Flag file: Wikipedia's SVG in its real proportions. Titles, descriptions, metadata and comments are removed
+    // (they name the country).
+    let svg = (NEWER_FLAGS[cc] ? NEWER_FLAGS[cc]() : fs.readFileSync(nm('svg-country-flags/svg/' + cc.toLowerCase() + '.svg'), 'utf8'))
+      .replace(/<!--[\s\S]*?-->/g, '').replace(/<(title|desc|metadata)[\s\S]*?<\/\1>/g, '').replace(/<\?xml[^>]*>\s*/, '')
+      .replace(/<sodipodi:namedview[\s\S]*?(\/>|<\/sodipodi:namedview>)/g, '').replace(/\s(sodipodi|inkscape):[\w-]+="[^"]*"/g, '')
+      .replace(/\s[\w:-]+="[^"]*[Ff]lag[ _]of[^"]*"/g, '');
+    if (/[Ff]lag[ _]of/.test(svg)) throw new Error('Flag file still names its country: ' + cc);
+    const vb = svg.match(/viewBox="\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+([\d.]+)/);
+    const wh = svg.match(/<svg[^>]*\swidth="([\d.]+)[^"]*"[^>]*\sheight="([\d.]+)/);
+    const ratio = vb ? +vb[1] / +vb[2] : wh ? +wh[1] / +wh[2] : 1.5;
+    // Give every file a real width and height (same proportions) so browsers know its size before it loads.
+    svg = svg.replace(/<svg([^>]*)>/, (m, attrs) => '<svg' + attrs.replace(/\s(width|height)="[^"]*"/g, '') + ' width="' + Math.round(ratio * 400) + '" height="400"' + (vb ? '' : ' viewBox="0 0 ' + wh[1] + ' ' + wh[2] + '" preserveAspectRatio="none"') + '>');
     const flag = 'flags/' + sha(svg) + '.svg';
     fs.writeFileSync(path.join(root, flag), svg);
     // Names.
@@ -227,11 +249,11 @@ const sha = (buf) => crypto.createHash('sha1').update(buf).digest('hex').slice(0
     const name = cc === 'CI' ? 'Ivory Coast' : cc === 'TR' ? 'Türkiye' : c.name.common;
     const caps = CAPITALS[cc] || c.capital;
     if (!caps || !caps.length) throw new Error('No capital for ' + cc);
-    return { id: cc.toLowerCase(), name, names: [...names].filter((n) => n !== name), capital: caps[0], capitals: caps.slice(1), region: regionOf(c), flag, shape: outline(c) };
+    return { id: cc.toLowerCase(), name, ratio: Math.round(ratio * 1000) / 1000, names: [...names].filter((n) => n !== name), capital: caps[0], capitals: caps.slice(1), region: regionOf(c), flag, shape: outline(c) };
   }).sort((a, b) => a.name.localeCompare(b.name));
 
   const js = '/* Country data for Geography Speedrun, generated by tools/data.js — do not edit by hand.\n' +
-    '   Names/capitals: world-countries (ODbL 1.0). Outlines: Natural Earth (public domain) via world-atlas (ISC). Flags: flag-icons (MIT). */\n' +
+    '   Names/capitals: world-countries (ODbL 1.0). Outlines: Natural Earth (public domain) via world-atlas (ISC). Flags: svg-country-flags (public domain, from Wikipedia). */\n' +
     'window.GS_DATA = { countries: [\n' + out.map((c) => ' ' + JSON.stringify(c)).join(',\n') + '\n] };\n';
   fs.mkdirSync(path.join(root, 'src'), { recursive: true });
   fs.writeFileSync(path.join(root, 'src/data.js'), js);
@@ -239,7 +261,8 @@ const sha = (buf) => crypto.createHash('sha1').update(buf).digest('hex').slice(0
   const lic = path.join(root, 'licenses'); fs.mkdirSync(lic, { recursive: true });
   fs.copyFileSync(nm('world-countries/LICENSE'), path.join(lic, 'world-countries-ODbL.txt'));
   fs.copyFileSync(nm('world-atlas/LICENSE'), path.join(lic, 'world-atlas-ISC.txt'));
-  fs.copyFileSync(nm('flag-icons/LICENSE'), path.join(lic, 'flag-icons-MIT.txt'));
+  fs.writeFileSync(path.join(lic, 'svg-country-flags-PD.txt'), 'Flag SVGs from svg-country-flags (https://github.com/hjnilsson/country-flags), taken from Wikipedia.\nThe package is marked public domain ("PD"): flags are generally not under copyright. Use of national flags may have other legal restrictions.\n');
+  fs.rmSync(path.join(lic, 'flag-icons-MIT.txt'), { force: true });
   const by = {}; out.forEach((c) => { by[c.region] = (by[c.region] || 0) + 1; });
   console.log('data: ' + out.length + ' countries', by, Math.round(js.length / 1024) + ' KB');
 })().catch((e) => { console.error(e); process.exit(1); });

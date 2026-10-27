@@ -9,10 +9,16 @@ const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL: 
 const id = (name) => GS.DATA.find((c) => c.name === name).id;
 
 // Data
-ok(GS.DATA.length === 197, '197 countries');
+ok(GS.DATA.length === 196, '196 countries');
+ok(!GS.DATA.some((c) => c.id === 'il' || c.name === 'Israel'), 'Israel is not in the game (owner\'s decision)');
+// Flags keep their real proportions.
+const ratio = (id) => GS.DATA.find((c) => c.id === id).ratio;
+[['mc', 1.25], ['id', 1.5], ['ch', 1], ['va', 1], ['qa', 2.545], ['us', 1.9], ['np', 0.82], ['be', 1.154], ['gb', 2], ['de', 1.667]]
+  .forEach(([id, r]) => ok(Math.abs(ratio(id) - r) < 0.01, 'flag proportions ' + id + ' = ' + r + ' (got ' + ratio(id) + ')'));
+ok(ratio('mc') !== ratio('id'), 'Monaco and Indonesia flags differ in shape');
 GS.DATA.forEach((c) => { ok(c.shape && c.shape.length > 20, 'outline for ' + c.name); ok(c.flag && /^flags\/[0-9a-f]{12}\.svg$/.test(c.flag), 'flag file for ' + c.name); ok(c.capital, 'capital for ' + c.name); });
 const counts = {}; GS.DATA.forEach((c) => { counts[c.region] = (counts[c.region] || 0) + 1; });
-ok(Object.values(counts).reduce((a, b) => a + b) === 197, 'regions add up');
+ok(Object.values(counts).reduce((a, b) => a + b) === 196, 'regions add up');
 
 // Every country/capital accepts its own shown name.
 GS.DATA.forEach((c) => { ok(GS.isRight(c.id, 'flag', c.name), 'name ' + c.name); ok(GS.isRight(c.id, 'capital', c.capital), 'capital ' + c.capital); });
@@ -75,7 +81,7 @@ const b1 = GS.makeBoard(bcfg), b2 = GS.makeBoard(bcfg), b3 = GS.makeBoard(Object
 ok(JSON.stringify(b1) === JSON.stringify(b2), 'board: same seed → same boards');
 ok(JSON.stringify(b1) !== JSON.stringify(b3), 'board: other seed → other boards');
 ok(b1.map((s) => s.game).join() === 'flags,map,capitals,shapes', 'board keeps the chosen order');
-b1.forEach((s) => ok(s.ids.length === 197 && new Set(s.ids).size === 197, s.game + ': all 197 once'));
+b1.forEach((s) => ok(s.ids.length === 196 && new Set(s.ids).size === 196, s.game + ': all 196 once'));
 const caps = b1[2].ids.map((id) => GS.DATA.find((c) => c.id === id).name);
 ok(caps.join() !== caps.slice().sort((a, b) => a.localeCompare(b)).join(), 'capitals board is shuffled, not A–Z');
 ok(b3[2].ids.join() !== b1[2].ids.join(), 'capitals order changes with a new seed');
@@ -104,6 +110,10 @@ require(path.join(__dirname, '../map.js'));
 const M = window.GS_MAP;
 GS.DATA.forEach((c) => ok(!!M.world.c[c.id], 'on the world map: ' + c.name));
 GS.DATA.filter((c) => c.region === 'Oceania').forEach((c) => ok(!!M.pacific.c[c.id], 'on the Pacific map: ' + c.name));
+ok(!M.world.c.il, 'Israel is grey (not playable) on the map');
+ok(M.views.world.insets.length === 2, 'world map has Caribbean + Pacific insets');
+['jm', 'dm', 'lc', 'bb', 'gd', 'ag', 'kn', 'vc', 'tt', 'bs'].forEach((id) => ok(!!M.world.mk[id], 'Caribbean marker data: ' + id));
+['fj', 'to', 'ws', 'tv', 'ki', 'mh', 'fm', 'pw', 'nr', 'sb', 'vu'].forEach((id) => ok(!!M.pacific.mk[id], 'Pacific marker data: ' + id));
 ['world', 'Africa', 'Asia', 'Europe', 'North America', 'South America', 'Oceania'].forEach((r) => ok(M.views[r] && M.views[r].box.length === 4, 'view for ' + r));
 
 // Runs are the same for the same seed, different for another seed.
@@ -114,8 +124,8 @@ ok(JSON.stringify(a) !== JSON.stringify(c), 'other seed → other run');
 ok(new Set(a.map((q) => q.id)).size === 50, 'no repeats');
 a.forEach((q) => { ok(q.opts.length === 4 && q.opts.includes(q.id) && new Set(q.opts).size === 4, 'options ok'); });
 ['flag', 'shape', 'capital'].forEach((k) => ok(a.some((q) => q.kind === k), 'mix has ' + k));
-const all = GS.makeRun({ kind: 'quick', mode: 'flags', region: 'world', style: 'type', count: 197, seed: 1 });
-ok(all.length === 197 && new Set(all.map((q) => q.id)).size === 197, 'all 197');
+const all = GS.makeRun({ kind: 'quick', mode: 'flags', region: 'world', style: 'type', count: 196, seed: 1 });
+ok(all.length === 196 && new Set(all.map((q) => q.id)).size === 196, 'all 196');
 const oc = GS.makeRun({ kind: 'quick', mode: 'capitals', region: 'Oceania', style: 'pick', count: 14, seed: 9 });
 ok(oc.every((q) => GS.DATA.find((c) => c.id === q.id).region === 'Oceania'), 'region filter');
 
