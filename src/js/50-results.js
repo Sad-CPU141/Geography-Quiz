@@ -15,7 +15,10 @@ async function share(cfg, score) {
 function missedBoard(sec) {
   const G = gameOf(sec.game);
   const head = h('p', { class: 'eyebrow' }, G.em + ' ' + G.label + ' · ' + sec.found.length + '/' + sec.ids.length + (sec.skipped ? ' (not played)' : sec.gaveUp ? ' (gave up)' : ''));
-  if (!sec.missed.length) return h('div', { class: 'stack sm' }, head, h('p', { class: 'small' }, h('span', { class: 'badge' }, 'All found 🎯')));
+  // Map: how many were right on the first tap.
+  const first = sec.game === 'map' && sec.found.length ? sec.found.filter((id) => !(sec.tries && sec.tries[id])).length : null;
+  const firstLine = first != null ? h('p', { class: 'small muted' }, '🎯 First tap right: ' + first + '/' + sec.ids.length + ' (' + Math.round(first / sec.ids.length * 100) + '%)') : null;
+  if (!sec.missed.length) return h('div', { class: 'stack sm' }, head, firstLine, h('p', { class: 'small' }, h('span', { class: 'badge' }, 'All found 🎯')));
   let body;
   if (sec.game === 'flags' || sec.game === 'shapes') {
     body = h('div', { class: 'tiles small t-' + sec.game }, sec.missed.map((id) => h('div', { class: 'tile missed' }, tilePic(sec.game, id), h('span', { class: 'lbl' }, BY_ID[id].name))));
@@ -24,7 +27,7 @@ function missedBoard(sec) {
   } else {
     body = h('p', { class: 'namelist' }, sec.missed.map((id) => BY_ID[id].name).join(' · '));
   }
-  return h('div', { class: 'stack sm' }, head, body);
+  return h('div', { class: 'stack sm' }, head, firstLine, body);
 }
 function missedQuick(score) {
   const miss = score.res.filter((x) => !x.ok);

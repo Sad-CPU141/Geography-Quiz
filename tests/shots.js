@@ -210,7 +210,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")'); await page.waitForSelector('.map .cty');
     await page.waitForTimeout(300);
     await page.screenshot({ path: path.join(outDir, 'islands-' + region.replace(/\W/g, '') + '.png') });
-    let ringTaps = 0, total = 0;
+    let ringTaps = 0, total = 0, litChecked = false, litColours = '';
     for (let k = 0; k < 40; k++) {
       const id = await targetId(page); if (!id) break;
       total++;
@@ -219,9 +219,15 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
         const x = r.left + r.width / 2 + 3, y = r.top + r.height / 2 + 2; return x > w.left && x < w.right && y > w.top && y < w.bottom && !(x > w.right - 64 && y < w.top + 175) ? { x, y } : null; }, id);
       if (ring) { await page.mouse.click(ring.x, ring.y); ringTaps++; } else await tapCountry(page, id);
       await page.waitForTimeout(40);
+      if (!litChecked && total >= 10) {
+        // Found dots light up (not white any more).
+        const lit = await page.evaluate(() => [...document.querySelectorAll('.map .dot[data-st]')].filter((d) => d.style.display !== 'none').map((d) => getComputedStyle(d).fill));
+        if (lit.length) { litChecked = lit.every((f) => f !== 'rgb(255, 255, 255)'); litColours = [...new Set(lit)].join(', '); await page.screenshot({ path: path.join(outDir, 'islands-' + region.replace(/\W/g, '') + '-lit.png') }); }
+      }
       if ((await targetId(page)) === id) { console.log('ring/tap missed ' + id, JSON.stringify(ring), await page.textContent('.maphint'), await page.getAttribute('svg.map', 'viewBox')); await tapCountry(page, id); }
       if (await page.$('.result-time')) break;
     }
+    ok(litChecked, region + ': found dots light up (' + litColours + ')');
     await page.waitForSelector('.result-time');
     const st = (await page.textContent('.stat b')).trim();
     ok(st === total + '/' + total, region + ' islands: all found first time (' + st + ', ' + ringTaps + ' by ring)');

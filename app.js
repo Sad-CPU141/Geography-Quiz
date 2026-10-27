@@ -1,7 +1,7 @@
-/* Geography Speedrun de0b0fb304 — built from src/js/ by build.js. Edit src/, not this file. */
+/* Geography Speedrun aa3e710298 — built from src/js/ by build.js. Edit src/, not this file. */
 (function () {
 'use strict';
-const APP_VERSION = "de0b0fb304";
+const APP_VERSION = "aa3e710298";
 /* ---- core: data, answer matching, runs, challenge codes (no DOM; tested by tests/run.js) ---- */
 const DATA = window.GS_DATA.countries;
 const BY_ID = Object.fromEntries(DATA.map((c) => [c.id, c]));
@@ -861,6 +861,7 @@ function mapGame(api) {
   const target = h('b', { class: 'target' });
   const hint = h('div', { class: 'maphint', 'aria-live': 'polite' });
   const foundEl = h('span', { class: 'found num' });
+  const barOk = h('i', { class: 'b-ok' }), barMiss = h('i', { class: 'b-miss' });
   const portrait = () => window.innerHeight > window.innerWidth * 1.15;
   const skipBtn = h('button', { class: 'btn ghost giveup', onclick: () => skip() }, 'Skip');
   const footer = h('div', { class: 'reveal-bar floating', hidden: true });
@@ -871,6 +872,7 @@ function mapGame(api) {
       h('div', { class: 'timer num' }, fmtTime(api.R.clock.elapsed())),
       h('button', { class: 'btn ghost giveup', onclick: () => { if (!revealed && !ended) api.giveUp(); } }, 'Give up')),
     h('div', { class: 'prompt' }, h('span', { class: 'findlbl' }, h('span', { class: 'eyebrow' }, 'Find'), foundEl), target, skipBtn),
+    h('div', { class: 'mapbar', 'aria-hidden': 'true' }, barOk, barMiss),
     hint);
   mount(h('div', { class: 'app map-run' }, head, wrap, footer));
   document.body.classList.add('fullscreen');
@@ -907,6 +909,7 @@ function mapGame(api) {
     });
     placeMarkers(main.markers, px, (id) => insets.some((i) => i.shown && i.covered.has(id)));
   }
+  const placeAll = () => apply();
   // Dot or dashed box for each small country, from how big it is on screen right now.
   function placeMarkers(list, px, hidden) {
     list.forEach((k) => {
@@ -919,7 +922,7 @@ function mapGame(api) {
       k.mode = mode;
       k.dot.style.display = mode === 'dot' ? '' : 'none';
       k.zone.style.display = mode === 'zone' ? '' : 'none';
-      if (mode === 'dot') k.dot.setAttribute('r', String(4.5 * px));
+      if (mode === 'dot') k.dot.setAttribute('r', String((k.dot.hasAttribute('data-st') ? 6 : 4.5) * px));
       if (mode === 'zone') { const pad = 5 * px; k.zone.setAttribute('x', k.x0 - pad); k.zone.setAttribute('y', k.y0 - pad); k.zone.setAttribute('width', k.x1 - k.x0 + 2 * pad); k.zone.setAttribute('height', k.y1 - k.y0 + 2 * pad); k.zone.setAttribute('rx', 4 * px); }
     });
   }
@@ -971,8 +974,19 @@ function mapGame(api) {
   cleanup.push(() => window.removeEventListener('resize', onResize));
 
   /* ---- the game ---- */
-  const setState = (id, st) => (els[id] || []).forEach((el) => { if (st) el.setAttribute('data-st', st); else el.removeAttribute('data-st'); });
-  function count() { foundEl.textContent = res.found.length + ' / ' + ids.length + ' found'; }
+  const setState = (id, st) => { (els[id] || []).forEach((el) => { if (st) el.setAttribute('data-st', st); else el.removeAttribute('data-st'); }); if (base) apply(); };
+  let missedN = 0;
+  function count() {
+    foundEl.textContent = res.found.length + ' / ' + ids.length + ' found';
+    barOk.style.width = (res.found.length / ids.length * 100) + '%'; barMiss.style.width = (missedN / ids.length * 100) + '%';
+  }
+  // The name of what you tapped, floating where you tapped (green when right, red when wrong).
+  function tapName(x, y, text, ok) {
+    document.querySelectorAll('.tapname').forEach((t) => t.remove());
+    const t = h('div', { class: 'tapname ' + (ok ? 'ok' : 'bad'), style: { left: x + 'px', top: y + 'px' } }, (ok ? '✓ ' : '✗ ') + text);
+    document.body.appendChild(t); setTimeout(() => t.remove(), 950);
+  }
+  const pop = (id) => (els[id] || []).forEach((el) => { el.classList.remove('pop'); void el.getBoundingClientRect(); el.classList.add('pop'); });
   function ask() {
     if (!queue.length) { ended = true; target.textContent = 'Done!'; skipBtn.disabled = true; hint.textContent = ''; api.done(); return; }
     target.textContent = BY_ID[queue[0]].name;
@@ -1015,21 +1029,22 @@ function mapGame(api) {
     const cur = queue[0];
     if (must) {
       // After three misses you have to tap the right one (in red) before the next country.
-      if (id === must) { setState(must, 'miss'); must = null; queue.shift(); count(); ask(); }
+      if (id === must) { setState(must, 'miss'); must = null; missedN++; queue.shift(); count(); ask(); }
       else { hint.textContent = 'Tap ' + BY_ID[must].name + ' (flashing red) to go on'; }
       return;
     }
     if (res.found.includes(id)) return;
     if (id === cur) {
       const t = tries[cur] || 0;
-      res.found.push(cur); setState(cur, 'g' + t);
-      queue.shift(); count(); ask();
+      res.found.push(cur); setState(cur, 'g' + t); pop(cur); tapName(x, y, BY_ID[cur].name, true);
+      placeAll(); queue.shift(); count(); ask();
       return;
     }
     // Wrong country.
     tries[cur] = (tries[cur] || 0) + 1;
     if (!(els[id][0].getAttribute('data-st'))) { setState(id, 'flash'); setTimeout(() => { if (els[id][0].getAttribute('data-st') === 'flash') setState(id, null); }, 450); }
     try { navigator.vibrate && navigator.vibrate(40); } catch (e) { /* no vibration */ }
+    tapName(x, y, BY_ID[id].name, false);
     if (tries[cur] >= MAP_TRIES) {
       must = cur; setState(cur, 'must');
       hint.textContent = '✗ That\'s ' + BY_ID[id].name + '. ' + BY_ID[cur].name + ' is flashing red: tap it to go on.';
@@ -1081,7 +1096,10 @@ async function share(cfg, score) {
 function missedBoard(sec) {
   const G = gameOf(sec.game);
   const head = h('p', { class: 'eyebrow' }, G.em + ' ' + G.label + ' · ' + sec.found.length + '/' + sec.ids.length + (sec.skipped ? ' (not played)' : sec.gaveUp ? ' (gave up)' : ''));
-  if (!sec.missed.length) return h('div', { class: 'stack sm' }, head, h('p', { class: 'small' }, h('span', { class: 'badge' }, 'All found 🎯')));
+  // Map: how many were right on the first tap.
+  const first = sec.game === 'map' && sec.found.length ? sec.found.filter((id) => !(sec.tries && sec.tries[id])).length : null;
+  const firstLine = first != null ? h('p', { class: 'small muted' }, '🎯 First tap right: ' + first + '/' + sec.ids.length + ' (' + Math.round(first / sec.ids.length * 100) + '%)') : null;
+  if (!sec.missed.length) return h('div', { class: 'stack sm' }, head, firstLine, h('p', { class: 'small' }, h('span', { class: 'badge' }, 'All found 🎯')));
   let body;
   if (sec.game === 'flags' || sec.game === 'shapes') {
     body = h('div', { class: 'tiles small t-' + sec.game }, sec.missed.map((id) => h('div', { class: 'tile missed' }, tilePic(sec.game, id), h('span', { class: 'lbl' }, BY_ID[id].name))));
@@ -1090,7 +1108,7 @@ function missedBoard(sec) {
   } else {
     body = h('p', { class: 'namelist' }, sec.missed.map((id) => BY_ID[id].name).join(' · '));
   }
-  return h('div', { class: 'stack sm' }, head, body);
+  return h('div', { class: 'stack sm' }, head, firstLine, body);
 }
 function missedQuick(score) {
   const miss = score.res.filter((x) => !x.ok);

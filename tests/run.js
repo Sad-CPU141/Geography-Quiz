@@ -16,6 +16,8 @@ const ratio = (id) => GS.DATA.find((c) => c.id === id).ratio;
 [['mc', 1.25], ['id', 1.5], ['ch', 1], ['va', 1], ['qa', 2.545], ['us', 1.9], ['np', 0.82], ['be', 1.154], ['gb', 2], ['de', 1.667]]
   .forEach(([id, r]) => ok(Math.abs(ratio(id) - r) < 0.01, 'flag proportions ' + id + ' = ' + r + ' (got ' + ratio(id) + ')'));
 ok(ratio('mc') !== ratio('id'), 'Monaco and Indonesia flags differ in shape');
+const afFlag = require('fs').readFileSync(path.join(__dirname, '..', GS.DATA.find((c) => c.id === 'af').flag), 'utf8');
+ok(ratio('af') === 2 && /fill="#fff"/.test(afFlag) && afFlag.includes('محمد رسول الله'), 'Afghanistan: the white flag with the Shahada (owner\'s choice), 1:2');
 GS.DATA.forEach((c) => { ok(c.shape && c.shape.length > 20, 'outline for ' + c.name); ok(c.flag && /^flags\/[0-9a-f]{12}\.svg$/.test(c.flag), 'flag file for ' + c.name); ok(c.capital, 'capital for ' + c.name); });
 const counts = {}; GS.DATA.forEach((c) => { counts[c.region] = (counts[c.region] || 0) + 1; });
 ok(Object.values(counts).reduce((a, b) => a + b) === 196, 'regions add up');

@@ -278,3 +278,26 @@ body.fullscreen{overflow:hidden}
 .inset .map{width:100%;height:100%;touch-action:manipulation}
 .inset-name{position:absolute;top:4px;inset-inline-start:8px;font-family:var(--cond);font-weight:800;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.7);pointer-events:none}
 .mapwrap .zoom{z-index:3}
+
+/* map: guessed dots and boxes light up in the answer colour (green / yellow / orange / red) */
+.map .dot[data-st]{stroke:#fff;stroke-width:2;filter:drop-shadow(0 0 3px rgba(255,255,255,.75))}
+.map .dot[data-st="g0"]{fill:var(--ok)}.map .dot[data-st="g1"]{fill:#ffd23d}.map .dot[data-st="g2"]{fill:#ff9a3d}
+.map .dot[data-st="miss"],.map .dot[data-st="must"]{fill:var(--danger)}.map .dot[data-st="flash"]{fill:#ff8a99}
+.map .dot[data-st="must"]{animation:mustpulse 0.9s ease-in-out infinite}
+.map .zone[data-st="g0"]{fill:rgba(53,208,127,.22);stroke-width:2.2}
+.map .zone[data-st="g1"]{fill:rgba(255,210,61,.22);stroke-width:2.2}
+.map .zone[data-st="g2"]{fill:rgba(255,154,61,.22);stroke-width:2.2}
+.map .zone[data-st="miss"],.map .zone[data-st="must"]{fill:rgba(255,84,104,.22)}
+/* a quick pop when you get one right */
+.map .pop{animation:pop .6s ease-out}
+@keyframes pop{0%{filter:brightness(1.9) drop-shadow(0 0 6px #fff)}100%{filter:none}}
+/* desktop: the country under the mouse lights up, like Seterra */
+@media (hover:hover){.map .cty:not(.off):not([data-st]):hover{fill:#fff3cc}.map .dot:not([data-st]):hover{fill:var(--gold)}}
+/* the name of what you tapped, floating where you tapped it */
+.tapname{position:fixed;z-index:30;transform:translate(-50%,-130%);padding:4px 10px;border-radius:20px;font-family:var(--cond);font-weight:800;font-size:15px;white-space:nowrap;pointer-events:none;box-shadow:0 4px 14px rgba(0,0,0,.45);animation:tapname .9s ease-out forwards}
+.tapname.ok{background:var(--ok);color:#022010}.tapname.bad{background:var(--danger);color:#2a0008}
+@keyframes tapname{0%{opacity:0;transform:translate(-50%,-90%)}15%{opacity:1;transform:translate(-50%,-130%)}75%{opacity:1}100%{opacity:0;transform:translate(-50%,-170%)}}
+/* progress under the map header */
+.mapbar{height:5px;border-radius:5px;background:var(--panel2);overflow:hidden;display:flex}
+.mapbar i{display:block;height:100%;transition:width .25s}
+.mapbar .b-ok{background:var(--ok)}.mapbar .b-miss{background:var(--danger)}
