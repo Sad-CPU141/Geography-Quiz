@@ -17,7 +17,7 @@ function loadMap() {
 
 function startSession(cfg, players, challenge) {
   S.challenge = null;
-  S.session = { cfg, players, idx: 0, scores: [], challenge };
+  S.session = { cfg, players, idx: 0, scores: [], challenge, help: !!S.setup.help };
   if (cfg.kind === 'board') {
     S.session.board = makeBoard(cfg);
     if (cfg.games.includes('flags')) preloadFlags(pool(cfg.region));
@@ -41,6 +41,7 @@ function cover() {
       many ? h('p', { class: 'eyebrow' }, 'Player ' + (se.idx + 1) + ' of ' + se.players.length) : null,
       h('h2', { class: 'display', style: { fontSize: many ? '54px' : '42px' } }, many ? (se.idx ? 'Pass to ' : '') + name : 'Ready?'),
       h('p', { class: 'muted', style: { maxWidth: '34ch' } }, howTo(se.cfg) + ' The clock starts after 3, 2, 1.'),
+      se.help ? h('p', { class: 'small muted' }, '💡 Spelling help is on') : null,
       se.challenge && se.challenge.time ? h('p', { class: 'badge' }, 'To beat: ' + (se.cfg.kind === 'board' && se.challenge.correct != null ? se.challenge.correct + '/' + cfgTotal(se.cfg) + ' in ' : '') + fmtTime(se.challenge.time)) : null,
       h('button', { class: 'btn primary', style: { maxWidth: '320px' }, onclick: countdown }, '▶ Go')),
   ));
@@ -155,18 +156,20 @@ function quickRun() {
   const barEl = h('i');
   const stage = h('div', { class: 'stage' });
   const revealEl = h('div', { class: 'reveal', 'aria-live': 'polite' });
-  let input, choicesEl;
+  let input, choicesEl, help;
   const answerArea = h('div');
   if (cfg.style === 'type') {
     input = h('input', { class: 'input', type: 'text', autocomplete: 'off', autocorrect: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'go', 'aria-label': 'Your answer' });
     const skipBtn = h('button', { class: 'btn ghost skip' }, 'Skip +10s');
-    answerArea.append(h('div', { class: 'answer' }, input, skipBtn), h('p', { class: 'hint' }, 'Spelling counts, but accents, capitals and dashes don\'t.'));
-    input.addEventListener('input', () => { if (!R.busy && isRight(Q[R.i].id, Q[R.i].kind, input.value)) done(true, 'typed'); });
+    const sugEl = h('div', { class: 'suggest', 'aria-live': 'polite', hidden: true });
+    help = spellingHelp(input, sugEl, () => Q[R.i].kind, () => Q[R.i].id, () => done(true, 'typed'));
+    answerArea.append(h('div', { class: 'answer' }, input, skipBtn), sugEl, h('p', { class: 'hint' }, 'Spelling counts, but accents, capitals and dashes don\'t.'));
+    input.addEventListener('input', () => { if (R.busy) return; if (isRight(Q[R.i].id, Q[R.i].kind, input.value)) done(true, 'typed'); else help.update(); });
     input.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter') return; e.preventDefault();
       if (R.busy) return;
       if (isRight(Q[R.i].id, Q[R.i].kind, input.value)) return done(true, 'typed');
-      input.classList.remove('shake'); void input.offsetWidth; input.classList.add('shake');
+      help.enter();
     });
     skipBtn.addEventListener('click', () => { if (!R.busy) { done(false, 'skip'); input.focus(); } });
   } else {
@@ -198,7 +201,7 @@ function quickRun() {
       stage.replaceChildren(...[kindChip, h('div', { class: 'ask' }, 'Capital of'), h('div', { class: 'big' }, c.name)].filter(Boolean));
     }
     if (input) {
-      input.value = '';
+      input.value = ''; help.clear();
       input.placeholder = q.kind === 'capital' ? 'Type the capital…' : 'Type the country…';
       input.focus({ preventScroll: true });
     } else {
@@ -213,7 +216,7 @@ function quickRun() {
     else { btn.classList.add('wrong'); choicesEl.querySelector('[data-id="' + q.id + '"]').classList.add('right'); done(false, 'wrong'); }
   }
   function done(ok, how) {
-    R.busy = true; clock.pause();
+    R.busy = true; clock.pause(); if (help) help.clear();
     const q = Q[R.i];
     if (!ok) { R.pen += how === 'skip' ? SKIP_MS : WRONG_MS; try { navigator.vibrate && navigator.vibrate(60); } catch (e) { /* no vibration */ } }
     R.res.push({ id: q.id, kind: q.kind, ok, how });

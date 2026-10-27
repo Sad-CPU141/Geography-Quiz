@@ -77,7 +77,18 @@ ok(JSON.stringify(b1) !== JSON.stringify(b3), 'board: other seed → other board
 ok(b1.map((s) => s.game).join() === 'flags,map,capitals,shapes', 'board keeps the chosen order');
 b1.forEach((s) => ok(s.ids.length === 197 && new Set(s.ids).size === 197, s.game + ': all 197 once'));
 const caps = b1[2].ids.map((id) => GS.DATA.find((c) => c.id === id).name);
-ok(caps.join() === caps.slice().sort((a, b) => a.localeCompare(b)).join(), 'capitals board is A–Z');
+ok(caps.join() !== caps.slice().sort((a, b) => a.localeCompare(b)).join(), 'capitals board is shuffled, not A–Z');
+ok(b3[2].ids.join() !== b1[2].ids.join(), 'capitals order changes with a new seed');
+
+// Spelling help: close misspellings get the right name; exact names and short bits get nothing.
+const sug = (t, k) => GS.suggest(t, k).map((x) => x.text);
+[['Kyrgistan', 'Kyrgyzstan'], ['Phillipines', 'Philippines'], ['Columbia', 'Colombia'], ['Lichtenstein', 'Liechtenstein'], ['Madagaskar', 'Madagascar'], ['Austrailia', 'Australia'], ['Turkmenistna', 'Turkmenistan']]
+  .forEach(([t, want]) => ok(sug(t, 'flag').includes(want), 'did you mean ' + want + ' for "' + t + '" → ' + sug(t, 'flag')));
+[['Ouagadogou', 'Ouagadougou'], ['Bucarest', 'Bucharest'], ['Tblisi', 'Tbilisi'], ['Kiyv', 'Kyiv'], ['Reykavik', 'Reykjavík']]
+  .forEach(([t, want]) => ok(sug(t, 'capital').includes(want), 'did you mean ' + want + ' for "' + t + '" → ' + sug(t, 'capital')));
+ok(sug('Germany', 'flag').length === 0 && sug('Ger', 'flag').length === 0 && sug('xqzzpt', 'flag').length === 0, 'no suggestion for exact, short or nonsense');
+ok(sug('Nigera', 'flag').length === 2, 'two equally close: Niger / Nigeria');
+ok(GS.suggest('Kyrgistan', 'flag').every((x) => GS.isRight(x.id, 'flag', x.text)), 'suggested text is accepted for its own country');
 ok(b1[0].ids.join() !== b1[1].ids.join(), 'flags and map orders differ');
 const eu = GS.makeBoard({ kind: 'board', games: ['map'], region: 'Europe', seed: 1 })[0];
 ok(eu.ids.length === 46 && eu.ids.every((id) => GS.DATA.find((c) => c.id === id).region === 'Europe'), 'region board');

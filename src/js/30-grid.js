@@ -16,6 +16,8 @@ function gridGame(api) {
   const input = h('input', { class: 'input', type: 'text', autocomplete: 'off', autocorrect: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'next',
     placeholder: kind === 'capital' ? 'Type the capital…' : 'Type the country…', 'aria-label': 'Answer for the selected tile' });
   const preview = h('div', { class: 'preview' });
+  const sugEl = h('div', { class: 'suggest', 'aria-live': 'polite', hidden: true });
+  const help = spellingHelp(input, sugEl, kind, () => ids[active], () => accept());
   const tiles = ids.map((id, i) => h('button', { class: 'tile', 'data-id': id, 'aria-label': kind === 'capital' ? 'Capital of ' + BY_ID[id].name : 'Tile ' + (i + 1),
     onmousedown: (e) => e.preventDefault(), onclick: () => { if (!revealed) select(i, true); } },
   tilePic(game, id), h('span', { class: 'lbl' })));
@@ -32,7 +34,8 @@ function gridGame(api) {
       h('button', { class: 'iconbtn', 'aria-label': 'Previous', onmousedown: (e) => e.preventDefault(), onclick: () => step(-1) }, '◀'),
       input,
       h('button', { class: 'iconbtn', 'aria-label': 'Next', onmousedown: (e) => e.preventDefault(), onclick: () => step(1) }, '▶')),
-    h('div', { class: 'progress' }, foundEl, h('span', { class: 'small muted' }, 'Tap any ' + (game === 'capitals' ? 'country' : game === 'flags' ? 'flag' : 'outline') + ' to switch · Enter = next')));
+    sugEl,
+    h('div', { class: 'progress' }, foundEl, h('span', { class: 'small muted' }, 'Tap any ' + (game === 'capitals' ? 'country' : game === 'flags' ? 'flag' : 'outline') + ' to switch')));
   mount(h('div', { class: 'app wide grid-run' }, head, grid, footer));
 
   function count() { foundEl.textContent = found.size + ' / ' + ids.length + ' found'; }
@@ -43,7 +46,7 @@ function gridGame(api) {
     t.classList.add('active');
     preview.replaceChildren(tilePic(game, ids[i]));
     preview.classList.toggle('name', game === 'capitals');
-    input.value = '';
+    input.value = ''; help.clear();
     t.scrollIntoView({ block: 'nearest', behavior: 'auto' });
     if (focus) input.focus({ preventScroll: true });
   }
@@ -53,19 +56,24 @@ function gridGame(api) {
     return -1;
   }
   function step(d) { if (revealed) return; const i = nextOpen(active, d); if (i >= 0) select(i, true); }
-  input.addEventListener('input', () => {
+  function accept() {
     const id = ids[active];
-    if (revealed || found.has(id) || !isRight(id, kind, input.value)) return;
+    if (revealed || found.has(id)) return;
     found.add(id); res.found.push(id);
     const t = tiles[active];
     t.classList.remove('active'); t.classList.add('done');
     t.querySelector('.lbl').textContent = answerText(id, kind);
-    count();
+    count(); help.clear();
     if (found.size === ids.length) { input.value = ''; input.blur(); api.done(); return; }
     select(nextOpen(active, 1), true);
+  }
+  // Right answer → accepted the moment it's typed. Enter on a wrong answer just shakes (it never skips).
+  input.addEventListener('input', () => {
+    if (revealed) return;
+    if (isRight(ids[active], kind, input.value)) accept(); else help.update();
   });
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); step(1); }
+    if (e.key === 'Enter') { e.preventDefault(); if (!revealed) help.enter(); }
     else if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) { e.preventDefault(); step(1); }
     else if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) { e.preventDefault(); step(-1); }
   });
@@ -74,7 +82,7 @@ function gridGame(api) {
   return {
     completed() { head.classList.add('all-done'); foundEl.textContent = 'All ' + ids.length + ' found!'; },
     reveal(btn) {
-      revealed = true;
+      revealed = true; help.clear();
       input.disabled = true; input.value = ''; input.placeholder = 'Gave up';
       tiles[active].classList.remove('active');
       ids.forEach((id, i) => { if (!found.has(id)) { tiles[i].classList.add('missed'); tiles[i].querySelector('.lbl').textContent = answerText(id, kind); } });
@@ -82,6 +90,37 @@ function gridGame(api) {
       foundEl.textContent = found.size + ' / ' + ids.length + ' found · missed ' + (ids.length - found.size) + ' (in red)';
       footer.hidden = false; footer.replaceChildren(btn);
       window.scrollTo(0, 0);
+    },
+  };
+}
+
+/* Spelling help ("Did you mean …?"), used by the boards and Quick fire. Only on when the player turned it on.
+   Suggestions come from every country (or capital) in the world, not just the right answer. Tapping one (or
+   Enter when there's only one) tries it: right → accepted; wrong → it shakes like any wrong answer. */
+function shake(input) { input.classList.remove('shake'); void input.offsetWidth; input.classList.add('shake'); }
+function spellingHelp(input, el, kindOf, currentId, onRight) {
+  let list = [];
+  const kind0 = () => (typeof kindOf === 'function' ? kindOf() : kindOf);
+  const on = () => !!(S.session && S.session.help);
+  const clear = () => { list = []; el.hidden = true; el.replaceChildren(); };
+  const tryText = (text) => {
+    if (isRight(currentId(), kind0(), text)) { input.value = text; onRight(); }
+    else { input.value = text; clear(); shake(input); }
+    input.focus({ preventScroll: true });
+  };
+  return {
+    clear,
+    update() {
+      if (!on()) return;
+      list = suggest(input.value, kind0());
+      if (!list.length) return clear();
+      el.hidden = false;
+      el.replaceChildren(...[h('span', null, 'Did you mean'), list.map((x, i) => [i ? h('span', null, 'or') : null,
+        h('button', { class: 'sug', onmousedown: (e) => e.preventDefault(), onclick: () => tryText(x.text) }, x.text)]), h('span', null, '?')].flat(2).filter(Boolean));
+    },
+    enter() {
+      if (on() && list.length === 1) return tryText(list[0].text);
+      shake(input);
     },
   };
 }

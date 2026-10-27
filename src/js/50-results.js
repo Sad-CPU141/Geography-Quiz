@@ -5,7 +5,7 @@ function shareUrl(cfg, score) {
 }
 async function share(cfg, score) {
   const url = shareUrl(cfg, score);
-  const text = score.name + ' ran Geography Speedrun (' + cfgLabel(cfg) + '): ' + score.correct + '/' + score.total + ' in ' + fmtTime(score.time) + '. Beat it! Code: ' + encodeCode(cfg);
+  const text = score.name + ' ran Geography Speedrun (' + cfgLabel(cfg) + (S.session && S.session.help ? ', with spelling help' : '') + '): ' + score.correct + '/' + score.total + ' in ' + fmtTime(score.time) + '. Beat it! Code: ' + encodeCode(cfg);
   if (navigator.share) { try { await navigator.share({ title: 'Geography Speedrun challenge', text, url }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
   try { await navigator.clipboard.writeText(text + '\n' + url); toast('Challenge link copied'); }
   catch (e) { prompt('Copy this link and send it:', url); }
@@ -51,7 +51,8 @@ function result(score) {
     h('div', { class: 'center stack', style: { gap: '6px' } },
       many ? h('p', { class: 'eyebrow' }, score.name) : null,
       h('div', { class: 'result-time' }, fmtTime(score.time)),
-      score.best ? h('div', null, h('span', { class: 'badge' }, '★ New best on this device')) : null),
+      score.best ? h('div', null, h('span', { class: 'badge' }, '★ New best on this device')) : null,
+      se.help ? h('p', { class: 'small muted' }, '💡 With spelling help') : null),
     versus(score, se.challenge, se.cfg.kind),
     h('div', { class: 'stats' },
       h('div', { class: 'stat' }, h('b', null, score.correct + '/' + score.total), h('span', null, board ? 'Found' : 'Right')),
@@ -73,8 +74,8 @@ function afterButtons() {
   const se = S.session;
   return h('div', { class: 'stack' },
     h('div', { class: 'row' },
-      h('button', { class: 'btn ghost small', onclick: () => startSession(se.cfg, se.players, se.challenge) }, '↻ Same run'),
-      h('button', { class: 'btn ghost small', onclick: () => startSession(Object.assign({}, se.cfg, { seed: newSeed() }), se.players, null) }, '🎲 New run')),
+      h('button', { class: 'btn primary small', onclick: () => startSession(Object.assign({}, se.cfg, { seed: newSeed() }), se.players, null) }, '🎲 Play again'),
+      h('button', { class: 'btn ghost small', onclick: () => startSession(se.cfg, se.players, se.challenge) }, '↻ Same order')),
     h('div', { class: 'row' },
       h('button', { class: 'btn ghost small', onclick: setup }, '⚙ Change'),
       h('button', { class: 'btn ghost small', onclick: home }, '⌂ Home')));

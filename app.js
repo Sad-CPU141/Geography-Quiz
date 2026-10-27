@@ -1,7 +1,7 @@
-/* Geography Speedrun 8faf6b2e41 — built from src/js/ by build.js. Edit src/, not this file. */
+/* Geography Speedrun 659954dfc7 — built from src/js/ by build.js. Edit src/, not this file. */
 (function () {
 'use strict';
-const APP_VERSION = "8faf6b2e41";
+const APP_VERSION = "659954dfc7";
 /* ---- core: data, answer matching, runs, challenge codes (no DOM; tested by tests/run.js) ---- */
 const DATA = window.GS_DATA.countries;
 const BY_ID = Object.fromEntries(DATA.map((c) => [c.id, c]));
@@ -83,13 +83,13 @@ function makeRun(cfg) {
     return q;
   });
 }
-// Board: the order of the tiles / map prompts for each game. Capitals are listed A–Z like on JetPunk;
-// flags and shapes are shuffled (A–Z would give them away); map prompts come in a shuffled order.
+// Board: the order of the tiles / map prompts for each game. Everything is shuffled (every new run gets a new
+// seed, so you can't learn the order); the same code always gives the same order, so challenges stay fair.
 function makeBoard(cfg) {
   return cfg.games.map((g, i) => {
     const r = rng((cfg.seed * 31 + i * 7919 + g.length * 104729) >>> 0);
     const ids = pool(cfg.region);
-    return { game: g, kind: kindOfGame(g), ids: g === 'capitals' ? byName(ids) : shuffle(ids, r) };
+    return { game: g, kind: kindOfGame(g), ids: shuffle(ids, r) };
   });
 }
 
@@ -184,7 +184,54 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode: fine */ } },
 };
 
-window.GS = { norm, isRight, answersFor, makeRun, makeBoard, encodeCode, decodeCode, fmtTime, pool, rng, better, compare, GAME_ORDERS, cfgLabel, DATA };
+/* ---------------- spelling help ---------------- */
+// Optimal string alignment distance (Levenshtein + swapped neighbours), stopping early past `max`.
+function editDistance(a, b, max) {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let prev2 = null, prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i]; let rowMin = i;
+    for (let j = 1; j <= b.length; j++) {
+      let v = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      if (prev2 && i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) v = Math.min(v, prev2[j - 2] + 1);
+      cur.push(v); if (v < rowMin) rowMin = v;
+    }
+    if (rowMin > max) return max + 1;
+    prev2 = prev; prev = cur;
+  }
+  return prev[b.length];
+}
+// All spellings to compare against, for countries or capitals: [normalised spelling, id].
+const spellCache = {};
+function spellings(kind) {
+  const k = kind === 'capital' ? 'capital' : 'country';
+  if (!spellCache[k]) {
+    spellCache[k] = [];
+    DATA.forEach((c) => (k === 'capital' ? [c.capital, ...c.capitals] : [c.name, ...c.names]).forEach((x) => { const n = norm(x); if (n.length >= 3) spellCache[k].push([n, c.id]); }));
+  }
+  return spellCache[k];
+}
+// "Did you mean …?" — the closest country (or capital) to what was typed, if it's close enough. Compares against
+// every country in the world, not just the right answer, so the hint never gives the answer away.
+// Returns up to 2 equally close suggestions, nearest in length first: [{ id, text }], or [] when nothing is close.
+function suggest(typed, kind) {
+  const n = norm(typed);
+  if (n.length < 4) return [];
+  const max = n.length >= 12 ? 3 : n.length >= 7 ? 2 : 1;
+  let bestD = max + 1, hits = [];
+  for (const [s, id] of spellings(kind)) {
+    if (s === n) return []; // already spelled right (for some country)
+    const d = editDistance(n, s, bestD);
+    if (d < bestD) { bestD = d; hits = [[id, s]]; } else if (d === bestD) hits.push([id, s]);
+  }
+  if (bestD > max) return [];
+  const seen = new Set(), out = [];
+  hits.sort((x, y) => Math.abs(x[1].length - n.length) - Math.abs(y[1].length - n.length))
+    .forEach(([id]) => { if (!seen.has(id) && out.length < 2) { seen.add(id); out.push({ id, text: kind === 'capital' ? BY_ID[id].capital : BY_ID[id].name }); } });
+  return out;
+}
+
+window.GS = { suggest, editDistance, norm, isRight, answersFor, makeRun, makeBoard, encodeCode, decodeCode, fmtTime, pool, rng, better, compare, GAME_ORDERS, cfgLabel, DATA };
 if (window.GS_NO_UI) return;
 
 /* ---- shared UI: DOM helper, menus, setup ---- */
@@ -334,6 +381,9 @@ function setup() {
     st.kind === 'board' ? gamesCard() : null,
     h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Where'), seg(regionItems.slice(0, 4), st.region, set('region'), 4), seg(regionItems.slice(4), st.region, set('region'), 3)),
     st.kind === 'quick' ? quickCards() : null,
+    st.kind === 'board' || st.style === 'type' ? h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Spelling help'),
+      seg([{ id: false, label: 'Off', em: '🎯' }, { id: true, label: 'On', em: '💡' }], !!st.help, set('help'), 2),
+      h('p', { class: 'small muted' }, st.help ? 'If you type something close, it shows "Did you mean …?" with the right spelling. Tap it to use it. It only suggests real names, so it won\'t give the answer away.' : 'Turn on to get "Did you mean …?" when you misspell a name.')) : null,
     h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Who is playing'),
       seg([{ id: false, label: 'Just me', em: '🙋' }, { id: true, label: 'Pass the phone', em: '👥' }], st.group, set('group'), 2),
       st.group ? [
@@ -400,7 +450,7 @@ function loadMap() {
 
 function startSession(cfg, players, challenge) {
   S.challenge = null;
-  S.session = { cfg, players, idx: 0, scores: [], challenge };
+  S.session = { cfg, players, idx: 0, scores: [], challenge, help: !!S.setup.help };
   if (cfg.kind === 'board') {
     S.session.board = makeBoard(cfg);
     if (cfg.games.includes('flags')) preloadFlags(pool(cfg.region));
@@ -424,6 +474,7 @@ function cover() {
       many ? h('p', { class: 'eyebrow' }, 'Player ' + (se.idx + 1) + ' of ' + se.players.length) : null,
       h('h2', { class: 'display', style: { fontSize: many ? '54px' : '42px' } }, many ? (se.idx ? 'Pass to ' : '') + name : 'Ready?'),
       h('p', { class: 'muted', style: { maxWidth: '34ch' } }, howTo(se.cfg) + ' The clock starts after 3, 2, 1.'),
+      se.help ? h('p', { class: 'small muted' }, '💡 Spelling help is on') : null,
       se.challenge && se.challenge.time ? h('p', { class: 'badge' }, 'To beat: ' + (se.cfg.kind === 'board' && se.challenge.correct != null ? se.challenge.correct + '/' + cfgTotal(se.cfg) + ' in ' : '') + fmtTime(se.challenge.time)) : null,
       h('button', { class: 'btn primary', style: { maxWidth: '320px' }, onclick: countdown }, '▶ Go')),
   ));
@@ -538,18 +589,20 @@ function quickRun() {
   const barEl = h('i');
   const stage = h('div', { class: 'stage' });
   const revealEl = h('div', { class: 'reveal', 'aria-live': 'polite' });
-  let input, choicesEl;
+  let input, choicesEl, help;
   const answerArea = h('div');
   if (cfg.style === 'type') {
     input = h('input', { class: 'input', type: 'text', autocomplete: 'off', autocorrect: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'go', 'aria-label': 'Your answer' });
     const skipBtn = h('button', { class: 'btn ghost skip' }, 'Skip +10s');
-    answerArea.append(h('div', { class: 'answer' }, input, skipBtn), h('p', { class: 'hint' }, 'Spelling counts, but accents, capitals and dashes don\'t.'));
-    input.addEventListener('input', () => { if (!R.busy && isRight(Q[R.i].id, Q[R.i].kind, input.value)) done(true, 'typed'); });
+    const sugEl = h('div', { class: 'suggest', 'aria-live': 'polite', hidden: true });
+    help = spellingHelp(input, sugEl, () => Q[R.i].kind, () => Q[R.i].id, () => done(true, 'typed'));
+    answerArea.append(h('div', { class: 'answer' }, input, skipBtn), sugEl, h('p', { class: 'hint' }, 'Spelling counts, but accents, capitals and dashes don\'t.'));
+    input.addEventListener('input', () => { if (R.busy) return; if (isRight(Q[R.i].id, Q[R.i].kind, input.value)) done(true, 'typed'); else help.update(); });
     input.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter') return; e.preventDefault();
       if (R.busy) return;
       if (isRight(Q[R.i].id, Q[R.i].kind, input.value)) return done(true, 'typed');
-      input.classList.remove('shake'); void input.offsetWidth; input.classList.add('shake');
+      help.enter();
     });
     skipBtn.addEventListener('click', () => { if (!R.busy) { done(false, 'skip'); input.focus(); } });
   } else {
@@ -581,7 +634,7 @@ function quickRun() {
       stage.replaceChildren(...[kindChip, h('div', { class: 'ask' }, 'Capital of'), h('div', { class: 'big' }, c.name)].filter(Boolean));
     }
     if (input) {
-      input.value = '';
+      input.value = ''; help.clear();
       input.placeholder = q.kind === 'capital' ? 'Type the capital…' : 'Type the country…';
       input.focus({ preventScroll: true });
     } else {
@@ -596,7 +649,7 @@ function quickRun() {
     else { btn.classList.add('wrong'); choicesEl.querySelector('[data-id="' + q.id + '"]').classList.add('right'); done(false, 'wrong'); }
   }
   function done(ok, how) {
-    R.busy = true; clock.pause();
+    R.busy = true; clock.pause(); if (help) help.clear();
     const q = Q[R.i];
     if (!ok) { R.pen += how === 'skip' ? SKIP_MS : WRONG_MS; try { navigator.vibrate && navigator.vibrate(60); } catch (e) { /* no vibration */ } }
     R.res.push({ id: q.id, kind: q.kind, ok, how });
@@ -640,6 +693,8 @@ function gridGame(api) {
   const input = h('input', { class: 'input', type: 'text', autocomplete: 'off', autocorrect: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'next',
     placeholder: kind === 'capital' ? 'Type the capital…' : 'Type the country…', 'aria-label': 'Answer for the selected tile' });
   const preview = h('div', { class: 'preview' });
+  const sugEl = h('div', { class: 'suggest', 'aria-live': 'polite', hidden: true });
+  const help = spellingHelp(input, sugEl, kind, () => ids[active], () => accept());
   const tiles = ids.map((id, i) => h('button', { class: 'tile', 'data-id': id, 'aria-label': kind === 'capital' ? 'Capital of ' + BY_ID[id].name : 'Tile ' + (i + 1),
     onmousedown: (e) => e.preventDefault(), onclick: () => { if (!revealed) select(i, true); } },
   tilePic(game, id), h('span', { class: 'lbl' })));
@@ -656,7 +711,8 @@ function gridGame(api) {
       h('button', { class: 'iconbtn', 'aria-label': 'Previous', onmousedown: (e) => e.preventDefault(), onclick: () => step(-1) }, '◀'),
       input,
       h('button', { class: 'iconbtn', 'aria-label': 'Next', onmousedown: (e) => e.preventDefault(), onclick: () => step(1) }, '▶')),
-    h('div', { class: 'progress' }, foundEl, h('span', { class: 'small muted' }, 'Tap any ' + (game === 'capitals' ? 'country' : game === 'flags' ? 'flag' : 'outline') + ' to switch · Enter = next')));
+    sugEl,
+    h('div', { class: 'progress' }, foundEl, h('span', { class: 'small muted' }, 'Tap any ' + (game === 'capitals' ? 'country' : game === 'flags' ? 'flag' : 'outline') + ' to switch')));
   mount(h('div', { class: 'app wide grid-run' }, head, grid, footer));
 
   function count() { foundEl.textContent = found.size + ' / ' + ids.length + ' found'; }
@@ -667,7 +723,7 @@ function gridGame(api) {
     t.classList.add('active');
     preview.replaceChildren(tilePic(game, ids[i]));
     preview.classList.toggle('name', game === 'capitals');
-    input.value = '';
+    input.value = ''; help.clear();
     t.scrollIntoView({ block: 'nearest', behavior: 'auto' });
     if (focus) input.focus({ preventScroll: true });
   }
@@ -677,19 +733,24 @@ function gridGame(api) {
     return -1;
   }
   function step(d) { if (revealed) return; const i = nextOpen(active, d); if (i >= 0) select(i, true); }
-  input.addEventListener('input', () => {
+  function accept() {
     const id = ids[active];
-    if (revealed || found.has(id) || !isRight(id, kind, input.value)) return;
+    if (revealed || found.has(id)) return;
     found.add(id); res.found.push(id);
     const t = tiles[active];
     t.classList.remove('active'); t.classList.add('done');
     t.querySelector('.lbl').textContent = answerText(id, kind);
-    count();
+    count(); help.clear();
     if (found.size === ids.length) { input.value = ''; input.blur(); api.done(); return; }
     select(nextOpen(active, 1), true);
+  }
+  // Right answer → accepted the moment it's typed. Enter on a wrong answer just shakes (it never skips).
+  input.addEventListener('input', () => {
+    if (revealed) return;
+    if (isRight(ids[active], kind, input.value)) accept(); else help.update();
   });
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); step(1); }
+    if (e.key === 'Enter') { e.preventDefault(); if (!revealed) help.enter(); }
     else if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) { e.preventDefault(); step(1); }
     else if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) { e.preventDefault(); step(-1); }
   });
@@ -698,7 +759,7 @@ function gridGame(api) {
   return {
     completed() { head.classList.add('all-done'); foundEl.textContent = 'All ' + ids.length + ' found!'; },
     reveal(btn) {
-      revealed = true;
+      revealed = true; help.clear();
       input.disabled = true; input.value = ''; input.placeholder = 'Gave up';
       tiles[active].classList.remove('active');
       ids.forEach((id, i) => { if (!found.has(id)) { tiles[i].classList.add('missed'); tiles[i].querySelector('.lbl').textContent = answerText(id, kind); } });
@@ -710,17 +771,49 @@ function gridGame(api) {
   };
 }
 
+/* Spelling help ("Did you mean …?"), used by the boards and Quick fire. Only on when the player turned it on.
+   Suggestions come from every country (or capital) in the world, not just the right answer. Tapping one (or
+   Enter when there's only one) tries it: right → accepted; wrong → it shakes like any wrong answer. */
+function shake(input) { input.classList.remove('shake'); void input.offsetWidth; input.classList.add('shake'); }
+function spellingHelp(input, el, kindOf, currentId, onRight) {
+  let list = [];
+  const kind0 = () => (typeof kindOf === 'function' ? kindOf() : kindOf);
+  const on = () => !!(S.session && S.session.help);
+  const clear = () => { list = []; el.hidden = true; el.replaceChildren(); };
+  const tryText = (text) => {
+    if (isRight(currentId(), kind0(), text)) { input.value = text; onRight(); }
+    else { input.value = text; clear(); shake(input); }
+    input.focus({ preventScroll: true });
+  };
+  return {
+    clear,
+    update() {
+      if (!on()) return;
+      list = suggest(input.value, kind0());
+      if (!list.length) return clear();
+      el.hidden = false;
+      el.replaceChildren(...[h('span', null, 'Did you mean'), list.map((x, i) => [i ? h('span', null, 'or') : null,
+        h('button', { class: 'sug', onmousedown: (e) => e.preventDefault(), onclick: () => tryText(x.text) }, x.text)]), h('span', null, '?')].flat(2).filter(Boolean));
+    },
+    enter() {
+      if (on() && list.length === 1) return tryText(list[0].text);
+      shake(input);
+    },
+  };
+}
+
 /* ---- the Map game (Seterra style) ----
    The whole map (or the region). It names a country; tap it. Right first time = green, second = yellow,
-   third = orange; three wrong taps and it's shown in red and counts as missed. Pinch / drag / scroll to zoom
-   and pan, or use the + − buttons. Tiny countries also have a circle you can tap. */
+   third = orange; three wrong taps and it turns red, counts as missed, and you have to tap it to go on (like
+   Seterra). Pinch / drag / scroll to zoom and pan, or use the + − buttons. Small island countries and microstates
+   have a ring round them that you can tap; a tap in the sea just next to a ring counts as that ring. */
 function mapGame(api) {
   const { sec, res } = api;
   const M = window.GS_MAP, view = M.views[S.session.cfg.region], m = M[view.map];
   const ids = sec.ids, playable = new Set(ids);
   const queue = ids.slice();
   const tries = res.tries;
-  let revealed = false, busy = false, ended = false;
+  let revealed = false, ended = false, must = null; // must = a missed country you have to tap to go on
 
   /* ---- drawing ---- */
   const els = {}; // id → [path, circle?]
@@ -731,10 +824,11 @@ function mapGame(api) {
     g.appendChild(p); els[id] = [p];
   });
   const dots = h('g', null);
-  Object.entries(m.dot).forEach(([id, [x, y]]) => {
+  const rings = [];
+  Object.entries(m.dot).forEach(([id, [x, y, rr]]) => {
     if (!playable.has(id)) return;
     const c = h('circle', { class: 'dot', cx: x, cy: y, r: 8, 'data-id': id });
-    dots.appendChild(c); els[id].push(c);
+    dots.appendChild(c); els[id].push(c); rings.push({ id, x, y, rr: rr || 0, el: c });
   });
   const svg = h('svg', { class: 'map', role: 'img', 'aria-label': 'World map', preserveAspectRatio: 'xMidYMid meet' },
     h('rect', { class: 'sea', x: -m.w, y: -m.h, width: m.w * 3, height: m.h * 3 }), g, dots);
@@ -742,10 +836,11 @@ function mapGame(api) {
     h('div', { class: 'zoom' },
       h('button', { class: 'iconbtn', 'aria-label': 'Zoom in', onclick: () => zoomBy(0.6) }, '+'),
       h('button', { class: 'iconbtn', 'aria-label': 'Zoom out', onclick: () => zoomBy(1 / 0.6) }, '−'),
-      h('button', { class: 'iconbtn', 'aria-label': 'Show the whole map', onclick: () => fit() }, '⤢')));
+      h('button', { class: 'iconbtn', 'aria-label': 'Show the whole map', onclick: () => fit(!fitAll) }, '⤢')));
   const target = h('b', { class: 'target' });
   const hint = h('div', { class: 'maphint', 'aria-live': 'polite' });
   const foundEl = h('span', { class: 'found num' });
+  const portrait = () => window.innerHeight > window.innerWidth * 1.15;
   const skipBtn = h('button', { class: 'btn ghost giveup', onclick: () => skip() }, 'Skip');
   const footer = h('div', { class: 'reveal-bar floating', hidden: true });
   const head = h('div', { class: 'bhead' },
@@ -754,31 +849,47 @@ function mapGame(api) {
       h('div', { class: 'secname' }, h('b', null, '🌍 ' + api.label), api.part ? h('small', null, 'Game ' + api.part) : null),
       h('div', { class: 'timer num' }, fmtTime(api.R.clock.elapsed())),
       h('button', { class: 'btn ghost giveup', onclick: () => { if (!revealed && !ended) api.giveUp(); } }, 'Give up')),
-    h('div', { class: 'prompt' }, h('span', { class: 'eyebrow' }, 'Find'), target, skipBtn),
-    h('div', { class: 'progress' }, foundEl, hint));
+    h('div', { class: 'prompt' }, h('span', { class: 'findlbl' }, h('span', { class: 'eyebrow' }, 'Find'), foundEl), target, skipBtn),
+    hint);
   mount(h('div', { class: 'app map-run' }, head, wrap, footer));
   document.body.classList.add('fullscreen');
 
   /* ---- view: fit, zoom, pan ---- */
   let base, vb;
   const size = () => { const r = svg.getBoundingClientRect(); return { w: r.width || 1, h: r.height || 1, left: r.left, top: r.top }; };
-  function fit() {
-    const s = size(), [bx, by, bw, bh] = view.box;
+  let fitAll = false;
+  function fit(all) {
+    fitAll = !!all;
+    // A phone held upright starts on a tighter view of the region; ⤢ switches to the whole region and back.
+    const s = size(), [bx, by, bw, bh] = !all && portrait() && view.tight ? view.tight : view.box;
     const ar = s.w / s.h;
     let w = bw, hh = bh;
-    if (bw / bh > ar) hh = bw / ar; else w = bh * ar;
+    if (bw / bh > ar) {
+      // Wider than the screen (a phone held upright): rather than shrink it to a strip, fill more of the height
+      // and show 70% of the width, centred. Drag to see the edges; ⤢ shows the whole region.
+      w = all ? bw : Math.max(bh * ar, bw * 0.7); hh = w / ar;
+    } else w = bh * ar;
     base = { x: bx + bw / 2 - w / 2, y: by + bh / 2 - hh / 2, w, h: hh };
     vb = Object.assign({}, base); apply();
+    svg.setAttribute('data-fit', fitAll ? 'all' : 'start');
   }
+  const fullW = () => Math.max(view.box[2], view.box[3] * size().w / size().h);
   function apply() {
     const s = size();
     svg.setAttribute('viewBox', [vb.x, vb.y, vb.w, vb.h].map((v) => Math.round(v * 10) / 10).join(' '));
     const px = vb.w / s.w; // map units per screen pixel
-    dots.querySelectorAll('circle').forEach((c) => c.setAttribute('r', String(Math.max(9 * px, 0.6))));
+    // Ring size on screen: 15 px, but never so big that it overlaps a neighbour (crowded places like the Lesser
+    // Antilles get smaller rings until you zoom in), and always big enough to hold its island group.
+    rings.forEach((r) => {
+      let dn = Infinity;
+      rings.forEach((o) => { if (o !== r) dn = Math.min(dn, Math.hypot(o.x - r.x, o.y - r.y) / px); });
+      r.sr = Math.max(7, Math.min(15, dn / 2 - 1)); // screen px
+      r.el.setAttribute('r', String(Math.max(r.sr * px, r.rr + 3 * px)));
+    });
   }
   function zoomAt(f, cx, cy) { // cx, cy: screen point that stays put
     const s = size();
-    const nw = Math.min(base.w * 1.4, Math.max(base.w / 30, vb.w * f));
+    const nw = Math.min(fullW() * 1.4, Math.max(fullW() / 40, vb.w * f));
     const k = nw / vb.w;
     const px = vb.x + (cx - s.left) / s.w * vb.w, py = vb.y + (cy - s.top) / s.h * vb.h;
     vb = { x: px - (px - vb.x) * k, y: py - (py - vb.y) * k, w: nw, h: vb.h * k };
@@ -799,7 +910,7 @@ function mapGame(api) {
     if (pts.size >= 2 && pinch) {
       const [a, b] = [...pts.values()];
       const d = Math.hypot(a.x - b.x, a.y - b.y) || 1, mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-      const nw = Math.min(base.w * 1.4, Math.max(base.w / 30, pinch.vb.w * pinch.d / d)), k = nw / pinch.vb.w;
+      const nw = Math.min(fullW() * 1.4, Math.max(fullW() / 40, pinch.vb.w * pinch.d / d)), k = nw / pinch.vb.w;
       const px = pinch.vb.x + (pinch.mx - s.left) / s.w * pinch.vb.w, py = pinch.vb.y + (pinch.my - s.top) / s.h * pinch.vb.h;
       vb = { x: px - (mx - s.left) / s.w * nw, y: py - (my - s.top) / s.h * pinch.vb.h * k, w: nw, h: pinch.vb.h * k };
       apply();
@@ -819,7 +930,7 @@ function mapGame(api) {
   };
   svg.addEventListener('pointerup', up); svg.addEventListener('pointercancel', up);
   svg.addEventListener('wheel', (e) => { e.preventDefault(); zoomAt(Math.exp(e.deltaY * 0.0015), e.clientX, e.clientY); }, { passive: false });
-  const onResize = () => fit();
+  const onResize = () => fit(fitAll);
   window.addEventListener('resize', onResize);
   cleanup.push(() => window.removeEventListener('resize', onResize));
 
@@ -827,22 +938,43 @@ function mapGame(api) {
   const setState = (id, st) => (els[id] || []).forEach((el) => { if (st) el.setAttribute('data-st', st); else el.removeAttribute('data-st'); });
   function count() { foundEl.textContent = res.found.length + ' / ' + ids.length + ' found'; }
   function ask() {
-    if (!queue.length) { ended = true; target.textContent = 'Done!'; skipBtn.disabled = true; api.done(); return; }
+    if (!queue.length) { ended = true; target.textContent = 'Done!'; skipBtn.disabled = true; hint.textContent = ''; api.done(); return; }
     target.textContent = BY_ID[queue[0]].name;
     const t = tries[queue[0]] || 0;
     hint.textContent = t ? '✗'.repeat(t) + ' ' + (MAP_TRIES - t) + ' tries left' : '';
   }
   function skip() {
-    if (revealed || busy || ended || queue.length < 2) return;
+    if (revealed || must || ended || queue.length < 2) return;
     queue.push(queue.shift()); ask();
   }
-  function tap(x, y) {
+  // Which country a tap means: the country (or ring) under the finger; on the sea, the nearest ring within reach
+  // (Seterra-style forgiving taps for small islands).
+  function pickAt(x, y) {
     const el = document.elementFromPoint(x, y);
     const hit = el && el.closest && el.closest('[data-id]');
     const id = hit && hit.getAttribute('data-id');
+    if (id && playable.has(id)) return id; // a country or its ring right under the finger
+    const s = size(), px = vb.w / s.w;
+    let best = null, bestD = Infinity;
+    rings.forEach((r) => {
+      const sx = s.left + (r.x - vb.x) / px, sy = s.top + (r.y - vb.y) / px;
+      const d = Math.hypot(sx - x, sy - y), reach = Math.max(r.sr || 15, r.rr / px + 3) + 8;
+      if (d <= reach && d < bestD) { bestD = d; best = r.id; }
+    });
+    return best || id;
+  }
+  function tap(x, y) {
+    const id = pickAt(x, y);
     if (revealed) { if (id) hint.textContent = BY_ID[id] ? BY_ID[id].name : ''; return; }
-    if (busy || ended || !id || !playable.has(id) || res.found.includes(id)) return;
+    if (ended || !id || !playable.has(id)) return;
     const cur = queue[0];
+    if (must) {
+      // After three misses you have to tap the right one (in red) before the next country.
+      if (id === must) { setState(must, 'miss'); must = null; queue.shift(); count(); ask(); }
+      else { hint.textContent = 'Tap ' + BY_ID[must].name + ' (flashing red) to go on'; }
+      return;
+    }
+    if (res.found.includes(id)) return;
     if (id === cur) {
       const t = tries[cur] || 0;
       res.found.push(cur); setState(cur, 'g' + t);
@@ -851,25 +983,32 @@ function mapGame(api) {
     }
     // Wrong country.
     tries[cur] = (tries[cur] || 0) + 1;
-    const wrongState = (els[id][0].getAttribute('data-st') || '');
-    if (!wrongState) { setState(id, 'flash'); setTimeout(() => { if (els[id][0].getAttribute('data-st') === 'flash') setState(id, null); }, 450); }
+    if (!(els[id][0].getAttribute('data-st'))) { setState(id, 'flash'); setTimeout(() => { if (els[id][0].getAttribute('data-st') === 'flash') setState(id, null); }, 450); }
     try { navigator.vibrate && navigator.vibrate(40); } catch (e) { /* no vibration */ }
     if (tries[cur] >= MAP_TRIES) {
-      // Three strikes: show where it was (clock stopped while it's shown) and move on.
-      busy = true; api.R.clock.pause();
-      setState(cur, 'miss'); hint.textContent = 'That was ' + BY_ID[cur].name + '. It\'s marked in red.';
-      setTimeout(() => { busy = false; api.R.clock.resume(); queue.shift(); count(); ask(); }, 1300);
+      must = cur; setState(cur, 'must');
+      hint.textContent = '✗ That\'s ' + BY_ID[id].name + '. ' + BY_ID[cur].name + ' is flashing red: tap it to go on.';
+      showMust(cur);
     } else {
       hint.textContent = '✗ That\'s ' + BY_ID[id].name + ' · ' + (MAP_TRIES - tries[cur]) + ' tries left';
     }
   }
-  requestAnimationFrame(fit);
+  // Make sure the missed country is on screen (zoom out to the region view if it isn't).
+  function showMust(id) {
+    const r = els[id][els[id].length - 1].getBoundingClientRect(), w = wrap.getBoundingClientRect();
+    if (r.right < w.left || r.left > w.right || r.bottom < w.top || r.top > w.bottom) fit(true);
+  }
+  requestAnimationFrame(() => fit(false));
   count(); ask();
+  if (portrait() && !store.get('gs_tip_sideways', false)) {
+    hint.textContent = 'Tip: turn your phone sideways for a bigger map. Pinch to zoom.';
+    store.set('gs_tip_sideways', true);
+  }
 
   return {
     completed() { head.classList.add('all-done'); },
     reveal(btn) {
-      revealed = true; skipBtn.disabled = true;
+      revealed = true; skipBtn.disabled = true; must = null;
       ids.forEach((id) => { if (!res.found.includes(id)) setState(id, 'miss'); });
       target.textContent = (ids.length - res.found.length) + ' missed (in red)';
       hint.textContent = 'Tap a country to see its name.';
@@ -886,7 +1025,7 @@ function shareUrl(cfg, score) {
 }
 async function share(cfg, score) {
   const url = shareUrl(cfg, score);
-  const text = score.name + ' ran Geography Speedrun (' + cfgLabel(cfg) + '): ' + score.correct + '/' + score.total + ' in ' + fmtTime(score.time) + '. Beat it! Code: ' + encodeCode(cfg);
+  const text = score.name + ' ran Geography Speedrun (' + cfgLabel(cfg) + (S.session && S.session.help ? ', with spelling help' : '') + '): ' + score.correct + '/' + score.total + ' in ' + fmtTime(score.time) + '. Beat it! Code: ' + encodeCode(cfg);
   if (navigator.share) { try { await navigator.share({ title: 'Geography Speedrun challenge', text, url }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
   try { await navigator.clipboard.writeText(text + '\n' + url); toast('Challenge link copied'); }
   catch (e) { prompt('Copy this link and send it:', url); }
@@ -932,7 +1071,8 @@ function result(score) {
     h('div', { class: 'center stack', style: { gap: '6px' } },
       many ? h('p', { class: 'eyebrow' }, score.name) : null,
       h('div', { class: 'result-time' }, fmtTime(score.time)),
-      score.best ? h('div', null, h('span', { class: 'badge' }, '★ New best on this device')) : null),
+      score.best ? h('div', null, h('span', { class: 'badge' }, '★ New best on this device')) : null,
+      se.help ? h('p', { class: 'small muted' }, '💡 With spelling help') : null),
     versus(score, se.challenge, se.cfg.kind),
     h('div', { class: 'stats' },
       h('div', { class: 'stat' }, h('b', null, score.correct + '/' + score.total), h('span', null, board ? 'Found' : 'Right')),
@@ -954,8 +1094,8 @@ function afterButtons() {
   const se = S.session;
   return h('div', { class: 'stack' },
     h('div', { class: 'row' },
-      h('button', { class: 'btn ghost small', onclick: () => startSession(se.cfg, se.players, se.challenge) }, '↻ Same run'),
-      h('button', { class: 'btn ghost small', onclick: () => startSession(Object.assign({}, se.cfg, { seed: newSeed() }), se.players, null) }, '🎲 New run')),
+      h('button', { class: 'btn primary small', onclick: () => startSession(Object.assign({}, se.cfg, { seed: newSeed() }), se.players, null) }, '🎲 Play again'),
+      h('button', { class: 'btn ghost small', onclick: () => startSession(se.cfg, se.players, se.challenge) }, '↻ Same order')),
     h('div', { class: 'row' },
       h('button', { class: 'btn ghost small', onclick: setup }, '⚙ Change'),
       h('button', { class: 'btn ghost small', onclick: home }, '⌂ Home')));

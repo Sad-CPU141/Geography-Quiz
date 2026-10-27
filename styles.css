@@ -1,4 +1,4 @@
-/* Geography Speedrun 8faf6b2e41 — built from src/styles.css */
+/* Geography Speedrun 659954dfc7 — built from src/styles.css */
 /* Geography Speedrun — the "game night" family look (Draft Night, Khatfa, Jeopardy-Board): ink/purple stage,
    gold accents, condensed headings. This game's own accent is sky blue. Fonts are self-hosted (SIL OFL). */
 @font-face{font-family:'Anton';font-weight:400;font-display:swap;src:url(fonts/anton-latin-400-normal.woff2) format('woff2')}
@@ -182,31 +182,31 @@ p{margin:0}
 .typebar{display:flex;align-items:center;gap:6px}
 .typebar .input{flex:1;min-width:0;min-height:48px;font-size:19px}
 .typebar .iconbtn{width:42px;height:48px}
-.preview{width:64px;height:48px;flex:none;display:grid;place-items:center;border-radius:8px;background:var(--panel2);overflow:hidden}
+.preview{width:84px;height:63px;flex:none;display:grid;place-items:center;border-radius:8px;background:var(--panel2);overflow:hidden}
 .preview img{width:100%;height:100%;object-fit:contain;background:#fff}
 .preview svg{width:100%;height:100%}
 .preview svg path{fill:var(--land);stroke:var(--sky);stroke-width:14;stroke-linejoin:round}
-.preview.name{width:auto;max-width:34%;padding:4px 8px;font-family:var(--cond);font-weight:800;font-size:15px;line-height:1.05;text-align:center}
+.preview.name{width:auto;max-width:38%;padding:4px 8px;font-family:var(--cond);font-weight:800;font-size:17px;line-height:1.05;text-align:center}
 .preview.name .pic{white-space:normal}
 .progress{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
 .found{font-family:var(--cond);font-weight:800;font-size:17px;color:var(--sky)}
-.tiles{display:grid;gap:6px;grid-template-columns:repeat(auto-fill,minmax(var(--tw,70px),1fr))}
-.tiles.t-capitals{--tw:100px}
-.tiles.t-shapes{--tw:76px}
-@media (min-width:700px){.tiles{--tw:104px}.tiles.t-capitals{--tw:150px}.tiles.t-shapes{--tw:120px}}
-.tile{display:flex;flex-direction:column;align-items:stretch;gap:3px;padding:4px;border-radius:10px;border:2px solid var(--line);background:var(--panel);scroll-margin-top:190px;scroll-margin-bottom:60px;text-align:center;min-width:0}
-.tile .pic{display:block;width:100%;aspect-ratio:4/3;object-fit:contain;border-radius:4px;background:#fff}
+.tiles{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(var(--tw,140px),1fr))}
+.tiles.t-capitals{--tw:140px}
+.tiles.t-shapes{--tw:140px}
+@media (min-width:700px){.tiles{--tw:180px}.tiles.t-capitals{--tw:190px}.tiles.t-shapes{--tw:180px}}
+.tile{display:flex;flex-direction:column;align-items:stretch;gap:6px;padding:8px;border-radius:14px;border:2px solid var(--line);background:var(--panel);scroll-margin-top:190px;scroll-margin-bottom:60px;text-align:center;min-width:0}
+.tile .pic{display:block;width:100%;height:auto;aspect-ratio:4/3;object-fit:contain;border-radius:4px;background:#fff}
 .t-shapes .tile .pic{background:none}
 .t-shapes .tile .pic path{fill:var(--land);stroke:var(--sky);stroke-width:12;stroke-linejoin:round}
-.tile .pic.name{aspect-ratio:auto;background:none;font-family:var(--cond);font-weight:800;font-size:14px;line-height:1.1;min-height:2.3em;display:grid;place-items:center;border-radius:0;overflow-wrap:anywhere}
-.tile .lbl{min-height:1.1em;font-family:var(--cond);font-weight:800;font-size:12px;line-height:1.1;overflow-wrap:anywhere}
+.tile .pic.name{aspect-ratio:auto;background:none;font-family:var(--cond);font-weight:800;font-size:19px;line-height:1.1;min-height:2.6em;display:grid;place-items:center;border-radius:0;overflow-wrap:anywhere}
+.tile .lbl{min-height:1.2em;font-family:var(--cond);font-weight:800;font-size:16px;line-height:1.1;overflow-wrap:anywhere}
 .tile.active{border-color:var(--gold);box-shadow:0 0 0 3px color-mix(in srgb,var(--gold) 45%,transparent);background:color-mix(in srgb,var(--gold) 14%,var(--panel))}
 .tile.done{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 18%,var(--panel))}
 .tile.done .lbl{color:#bff3d5}
 .tile.missed{border-color:var(--danger);background:color-mix(in srgb,var(--danger) 18%,var(--panel))}
 .tile.missed .lbl{color:#ffc2cb}
-.t-capitals .tile.done .lbl,.t-capitals .tile.missed .lbl{font-size:14px}
-.tiles.small{--tw:78px}
+.t-capitals .tile .lbl{font-size:17px}
+.tiles.small{--tw:110px}
 .tiles.small.t-capitals{--tw:110px}
 .reveal-bar{position:sticky;bottom:calc(10px + env(safe-area-inset-bottom,0px));z-index:6;display:flex;justify-content:center}
 .reveal-bar .btn{max-width:420px;box-shadow:0 5px 0 var(--sky-deep),0 10px 30px rgba(0,0,0,.5)}
@@ -241,3 +241,28 @@ body.fullscreen{overflow:hidden}
 .zoom .iconbtn{width:44px;height:44px;background:color-mix(in srgb,var(--panel) 90%,transparent);font-size:22px}
 .reveal-bar.floating{position:absolute;inset-inline:0;bottom:calc(20px + env(safe-area-inset-bottom,0px));padding-inline:70px 16px}
 @media (min-width:900px){.app.map-run{padding-inline:24px}.map-run .bhead{margin-inline:-24px;padding-inline:24px}}
+
+/* spelling help */
+.suggest{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:15px;color:var(--muted)}
+.suggest[hidden]{display:none}
+.sug{border:2px solid var(--gold);background:color-mix(in srgb,var(--gold) 18%,var(--panel2));color:var(--text);border-radius:30px;padding:5px 12px;font-family:var(--cond);font-weight:800;font-size:16px}
+.run .suggest{justify-content:center}
+
+/* map: compact header, the "tap it to go on" country, rings */
+.findlbl{display:flex;flex-direction:column;line-height:1.1;flex:none}
+.findlbl .found{font-size:14px}
+.map-run .maphint{text-align:start;min-height:1.3em}
+.map [data-st="must"]{fill:var(--danger);animation:mustpulse 0.9s ease-in-out infinite}
+@keyframes mustpulse{50%{fill:#ffd0d6}}
+.map .dot{fill:rgba(243,231,195,.18);stroke:#fff6d6;stroke-width:2}
+.map .dot[data-st="g0"],.map .dot[data-st="g1"],.map .dot[data-st="g2"],.map .dot[data-st="miss"],.map .dot[data-st="must"],.map .dot[data-st="flash"]{fill-opacity:.55}
+/* phone on its side: keep the map big — one compact header row */
+@media (max-height:520px) and (orientation:landscape){
+  .map-run .bhead{flex-direction:row;flex-wrap:wrap;align-items:center;gap:4px 10px;padding-block:6px}
+  .map-run .bhead .hud{flex:1 1 auto}
+  .map-run .bhead .timer{font-size:30px}
+  .map-run .prompt{flex:1 1 300px}
+  .map-run .prompt .target{font-size:26px}
+  .map-run .maphint{flex:1 1 100%;font-size:13px;min-height:0}
+  .map-run .bhead .iconbtn,.map-run .btn.giveup{min-height:38px;height:38px}
+}

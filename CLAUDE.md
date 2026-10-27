@@ -22,11 +22,13 @@ Read this first in every new chat about this repo.
 
 ## Game rules
 - **Full board** (default): pick 1–4 games in any order — Flags, Map, Capitals, Shapes — and a region. One clock for the whole run; it ends after the last game.
-  - Flags / Shapes / Capitals (JetPunk style): every country is a tile (flags and shapes shuffled, capitals A–Z by country). One tile is selected; typing its answer fills it in and selects the next empty tile. Tap a tile or ◀ ▶ to switch; Enter = next.
-  - Map (Seterra style): it names a country, you tap it. Colour by attempt: green / yellow / orange; 3 wrong taps → shown red, counts as missed (clock paused 1.3 s while shown). Skip sends it to the back. Pinch/drag/wheel/+−/⤢. Grey = not in the game.
+  - Flags / Shapes / Capitals (JetPunk style): every country is a big tile, all in a random order (new order every new run; the same code = same order). One tile is selected; typing its answer fills it in the moment it's right and selects the next empty tile. Tap a tile or ◀ ▶ (or Tab / arrow keys) to switch. **Enter never moves on**: on a wrong answer it just shakes (owner's request).
+  - Map (Seterra style): it names a country (random order), you tap it. Colour by attempt: green / yellow / orange; 3 wrong taps → it flashes red, counts as missed, and you must tap it to go on (clock keeps running). Skip sends it to the back. Pinch/drag/wheel/+−. ⤢ toggles between the start view and the whole region; a phone held upright starts on a tighter view (`tight` boxes in tools/map.js) showing 70% of its width. Grey = not in the game.
+  - Map rings: microstates and island countries get a tappable ring (15 px, shrinking down to 7 px where rings would overlap). The thing under the finger wins; a tap on the sea counts for the nearest ring within reach.
   - Give up: reveals the misses (red) with the clock paused; then next game, or "End the whole run" (later games count as all missed).
   - Ranking: most found, then fastest.
 - **Quick fire**: one question at a time, type or pick from 4, penalties (skip +10 s, wrong +5 s), lowest time wins.
+- **Spelling help** (setup switch, off by default, not part of the challenge code; results say "With spelling help"): when what you typed is close (edit distance 1–3 by length) to any country/capital in the world, it shows "Did you mean X?" (up to 2). Tapping it (or Enter with one suggestion) tries it like a typed answer. `suggest()` in 00-core.
 - Matching ignores case, accents, punctuation, spaces, a leading "the"; "Saint"="St"; "City" at the end / "City of" at the start is optional. An answer is accepted the moment it matches (e.g. "Bosnia").
 - Challenge code: 8 chars Crockford base32 = K 15 bits (kind 1 + quick: mode 2, region 3, style 1, count 8 | board: game order 6 (index into 64 orders), region 3, zeros 5) scrambled with the seed, seed 21, check 4. Links: `?c=CODE&n=name&t=ms&s=found` (honour system).
 - Pass the phone: 2–8 names, same run each, leaderboard.

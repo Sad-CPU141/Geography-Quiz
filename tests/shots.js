@@ -58,9 +58,10 @@ async function tapCountry(page, id) {
     const pt = await page.evaluate((id) => {
       const els = [...document.querySelectorAll('.map [data-id="' + id + '"]')].reverse(); // circle first
       const wrap = document.querySelector('.mapwrap').getBoundingClientRect();
-      const inside = (x, y) => x > wrap.left + 2 && x < wrap.right - 60 && y > wrap.top + 2 && y < wrap.bottom - 2;
+      const inside = (x, y) => x > wrap.left + 2 && x < wrap.right - 2 && y > wrap.top + 2 && y < wrap.bottom - 2 && !(x > wrap.right - 60 && y > wrap.bottom - 170); // not under the zoom buttons
       let zoomAt = null;
       for (const el of els) {
+        if (el.tagName === 'circle') { const r = el.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2; const hit = document.elementFromPoint(cx, cy); if (inside(cx, cy) && hit === el) return { x: cx, y: cy }; }
         const bb = el.getBBox(), m = el.getScreenCTM();
         for (let i = 1; i < 40; i++) for (let j = 1; j < 40; j++) {
           const p = new DOMPoint(bb.x + bb.width * i / 40, bb.y + bb.height * j / 40);
@@ -72,13 +73,20 @@ async function tapCountry(page, id) {
           if (hit && hit.getAttribute('data-id') === id) return { x: sp.x, y: sp.y };
         }
       }
+      const circle = els.find((e) => e.tagName === 'circle');
+      if (circle) { const r = circle.getBoundingClientRect(); zoomAt = { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }
+      if (!zoomAt) { const r = els[0].getBoundingClientRect(); zoomAt = { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }
       return { zoomAt: { x: Math.min(Math.max(zoomAt.x, wrap.left + 5), wrap.right - 70), y: Math.min(Math.max(zoomAt.y, wrap.top + 5), wrap.bottom - 5) } };
     }, id);
     if (pt.x != null) { await page.mouse.click(pt.x, pt.y); return true; }
+    if (z === 0) { await resetView(page, 'all'); continue; } // maybe it's off screen: show it all
     if (process.env.DBG) console.log('zoom for', id, JSON.stringify(pt), await page.getAttribute('svg.map', 'viewBox'));
     await page.mouse.move(pt.zoomAt.x, pt.zoomAt.y); await page.mouse.wheel(0, -400); await page.waitForTimeout(30);
   }
   return false;
+}
+async function resetView(page, want) { // want: 'all' or 'start'
+  for (let i = 0; i < 2; i++) { if ((await page.getAttribute('svg.map', 'data-fit')) === want) return; await page.click('[aria-label="Show the whole map"]'); }
 }
 const targetId = (page) => page.evaluate(() => { const n = document.querySelector('.prompt .target').textContent; const c = window.GS.DATA.find((x) => x.name === n); return c && c.id; });
 
@@ -104,6 +112,12 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     ok(await tiles[30].evaluate((t) => t.classList.contains('active')), label + ': tapping a tile selects it');
     await typeActive(page, 'flag');
     ok((await page.$$('.tile.done')).length === 5, label + ': 5 flags done');
+    const before = await page.$eval('.tile.active', (t) => t.dataset.id);
+    await page.type('.typebar input', 'Zzzland'); await page.keyboard.press('Enter');
+    ok(await page.$eval('.tile.active', (t) => t.dataset.id) === before, label + ': Enter on a wrong answer stays on the same flag');
+    ok(await page.$eval('.typebar input', (i) => i.classList.contains('shake')), label + ': wrong + Enter shakes');
+    ok(!(await page.isVisible('.suggest')), label + ': no spelling help when it is off');
+    await page.fill('.typebar input', '');
     await page.waitForTimeout(300);
     await page.screenshot({ path: path.join(outDir, label + '-03-flags-board.png') }); await noSideScroll(page, label + ' flags board');
     await page.click('button:has-text("Give up")'); await page.click('button:has-text("Give up and show me")');
@@ -117,6 +131,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     // 2. Combined run, Europe: Map first (2 misses on the first, 3 strikes on the second), then Capitals all typed.
     await page.click('button:has-text("Home")');
     await setupBoard(page, ['Map', 'Capitals'], 'Europe');
+    await page.click('.card:has-text("Spelling help") .opt:has-text("On")');
     const order = await page.$$eval('.game-row.on .game-txt b', (bs) => bs.map((x) => x.textContent));
     ok(/Map/.test(order[0]) && /Capitals/.test(order[1]), label + ': order Map → Capitals (' + order.join(', ') + ')');
     await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")');
@@ -128,20 +143,41 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
       const id = await targetId(page); if (!id) break;
       if (n === 0 || n === 1) {
         // Wrong taps: pick another European country.
-        const wrongs = await page.evaluate((id) => window.GS.DATA.filter((c) => c.region === 'Europe' && c.id !== id && ['de', 'fr', 'es', 'pl', 'ua', 'it'].includes(c.id)).map((c) => c.id), id);
+        const wrongs = await page.evaluate((id) => window.GS.DATA.filter((c) => c.region === 'Europe' && c.id !== id && ['de', 'fr', 'es', 'pl', 'ua', 'it'].includes(c.id)
+          && !document.querySelector('.map path[data-id="' + c.id + '"]').getAttribute('data-st')).map((c) => c.id), id); // not already found
         const k = n === 0 ? 2 : 3;
         for (let w = 0; w < k; w++) { await tapCountry(page, wrongs[w]); await page.waitForTimeout(60); }
-        if (n === 1) { misses++; await page.waitForTimeout(1500); n++; continue; }
+        if (n === 1) {
+          misses++;
+          ok(await page.$eval('.map [data-id="' + id + '"]', (e) => e.getAttribute('data-st') === 'must'), label + ': after 3 misses the country flashes red');
+          ok((await targetId(page)) === id, label + ': and the game waits for it');
+          await tapCountry(page, id);
+          ok((await targetId(page)) !== id, label + ': tapping it moves on');
+          ok(await page.$eval('.map [data-id="' + id + '"]', (e) => e.getAttribute('data-st') === 'miss'), label + ': it stays red (missed)');
+          n++; continue;
+        }
       }
       const tapped = await tapCountry(page, id);
       if (!tapped) { console.log('could not tap ' + id); await page.screenshot({ path: path.join(outDir, label + '-fail-tap.png') }); break; }
-      await page.click('[aria-label="Show the whole map"]');
+      await resetView(page, 'start');
       n++;
       if (n === 3) await page.screenshot({ path: path.join(outDir, label + '-07-map-playing.png') });
       if (await page.$('.typebar')) break;
     }
     await page.waitForSelector('.typebar input', { timeout: 5000 }).catch(async (e) => { await page.screenshot({ path: path.join(outDir, label + '-fail-map.png') }); console.log('n=' + n, await page.textContent('.bhead')); throw e; });
     ok(true, label + ': map finished after ' + n + ' prompts, now on Capitals');
+    // Spelling help: a misspelt capital (two letters swapped) offers the right spelling; tapping it is accepted.
+    const cap = await page.evaluate(() => { const id = document.querySelector('.tile.active').dataset.id; return window.GS.DATA.find((x) => x.id === id).capital; });
+    const typo = cap.length > 5 ? cap.slice(0, 2) + cap[3] + cap[2] + cap.slice(4) : null;
+    if (typo && !(await page.evaluate((t) => window.GS.suggest(t, 'capital').length !== 1, typo))) {
+      await page.type('.typebar input', typo);
+      await page.waitForSelector('.suggest .sug', { timeout: 4000 }).catch(async (e) => { await page.screenshot({ path: path.join(outDir, label + '-fail-sug.png') }); console.log('typo', typo, 'value', await page.inputValue('.typebar input'), await page.evaluate(() => document.querySelector('.suggest').outerHTML)); throw e; });
+      ok((await page.textContent('.suggest .sug')).trim() === cap, label + ': did you mean "' + cap + '" for "' + typo + '"');
+      await page.screenshot({ path: path.join(outDir, label + '-08a-spelling-help.png') });
+      const doneBefore = (await page.$$('.tile.done')).length;
+      await page.click('.suggest .sug');
+      ok((await page.$$('.tile.done')).length === doneBefore + 1, label + ': tapping the suggestion accepts it');
+    } else console.log('(skipped spelling check for ' + cap + ')');
     for (let i = 0; i < 46; i++) { await page.waitForSelector('.tile.active', { timeout: 3000 }).catch(() => {}); if (!(await page.$('.tile.active'))) break; await typeActive(page, 'capital'); }
     await page.waitForSelector('.result-time');
     const st = (await page.textContent('.stat b')).trim();
@@ -162,6 +198,37 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     ok(errors.length === 0, label + ': no page errors ' + JSON.stringify(errors));
     await ctx.close();
   }
+
+  // Islands: Oceania and the Caribbean on a phone, tapping each island country's ring (a little off-centre,
+  // as a thumb would) instead of the island itself.
+  for (const region of only && only !== 'islands' ? [] : ['Oceania', 'N. America']) {
+    const ctx = await b.newContext({ viewport: { width: 360, height: 780 }, deviceScaleFactor: 2 });
+    const page = await ctx.newPage();
+    const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(BASE);
+    await setupBoard(page, ['Map'], region);
+    await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")'); await page.waitForSelector('.map .cty');
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(outDir, 'islands-' + region.replace(/\W/g, '') + '.png') });
+    let ringTaps = 0, total = 0;
+    for (let k = 0; k < 40; k++) {
+      const id = await targetId(page); if (!id) break;
+      total++;
+      await resetView(page, 'start');
+      const ring = await page.evaluate((id) => { const c = document.querySelector('.map circle[data-id="' + id + '"]'); if (!c) return null; const r = c.getBoundingClientRect(), w = document.querySelector('.mapwrap').getBoundingClientRect();
+        const x = r.left + r.width / 2 + 3, y = r.top + r.height / 2 + 2; return x > w.left && x < w.right && y > w.top && y < w.bottom && !(x > w.right - 60 && y > w.bottom - 170) ? { x, y } : null; }, id);
+      if (ring) { await page.mouse.click(ring.x, ring.y); ringTaps++; } else await tapCountry(page, id);
+      await page.waitForTimeout(40);
+      if ((await targetId(page)) === id) { console.log('ring/tap missed ' + id, JSON.stringify(ring), await page.textContent('.maphint'), await page.getAttribute('svg.map', 'viewBox')); await tapCountry(page, id); }
+      if (await page.$('.result-time')) break;
+    }
+    await page.waitForSelector('.result-time');
+    const st = (await page.textContent('.stat b')).trim();
+    ok(st === total + '/' + total, region + ' islands: all found first time (' + st + ', ' + ringTaps + ' by ring)');
+    ok(errors.length === 0, region + ': no page errors ' + JSON.stringify(errors));
+    await ctx.close();
+  }
+  if (only === 'islands') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }
 
   if (!only) {
     // Challenge link for a board run: the friend gets the same tile order.

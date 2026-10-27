@@ -14,7 +14,9 @@ const nm = (p) => path.join(root, 'node_modules', p);
 const MERGE = { Somaliland: 'so', 'N. Cyprus': 'cy', 'Cyprus U.N. Buffer Zone': 'cy', Kosovo: 'xk', 'Hong Kong': 'cn', Macao: 'cn', 'Åland': 'fi' };
 const W = 2000;
 const EPS = 0.3; // simplification tolerance in map pixels
-const DOT_AREA = 30; // countries smaller than this (px² on the world map) also get a tap circle
+// Seterra-style rings: a tappable circle round small countries — microstates (area below TINY) and island
+// countries (no land border) below ISLAND. Areas are px² on the 2000-px-wide world map.
+const TINY = 30, ISLAND = 320;
 
 // Region views as lon/lat boxes [lonMin, lonMax, latMin, latMax].
 const VIEWS = {
@@ -26,6 +28,17 @@ const VIEWS = {
   'South America': ['world', [-93, -30, -57, 14]],
   Oceania: ['pacific', [110, 212, -48, 14]],
 };
+// Tighter first view for a phone held upright (the screen is narrow, so trim empty sea and far edges).
+// ⤢ still shows the whole region.
+const TIGHT = {
+  world: [-125, 150, -45, 65],
+  Africa: [-19, 52, -35, 37],
+  Europe: [-11, 41, 35, 66],
+  Asia: [33, 146, -10, 50],
+  'North America': [-118, -52, 7, 50],
+  'South America': [-82, -34, -56, 13],
+  Oceania: [112, 200, -47, 10],
+};
 
 (async () => {
   const d3 = await import('d3-geo');
@@ -35,7 +48,8 @@ const VIEWS = {
   global.window = {}; require(path.join(root, 'src/data.js'));
   const DATA = window.GS_DATA.countries;
   const byNum = {};
-  require(nm('world-countries/countries.json')).forEach((c) => { byNum[c.ccn3] = c.cca2.toLowerCase(); });
+  const island = new Set();
+  require(nm('world-countries/countries.json')).forEach((c) => { byNum[c.ccn3] = c.cca2.toLowerCase(); if (!c.borders || !c.borders.length) island.add(c.cca2.toLowerCase()); });
   const ours = new Set(DATA.map((c) => c.id));
   const idOf = (f) => MERGE[f.properties.name] || (byNum[f.id] && ours.has(byNum[f.id]) ? byNum[f.id] : null);
   let feats = f50.filter((f) => f.properties.name !== 'Antarctica');
@@ -83,7 +97,7 @@ const VIEWS = {
     proj.fitWidth(W, { type: 'Sphere' });
     const H = Math.ceil(d3.geoPath(proj).bounds({ type: 'Sphere' })[1][1]);
     const path0 = d3.geoPath(proj);
-    const c = {}, dot = {}, area = {}, cent = {}; let land = '';
+    const c = {}, dot = {}, area = {}, cent = {}, bb = {}; let land = '';
     feats.forEach((f) => {
       if (keep && !keep(f)) return;
       const id = idOf(f);
@@ -93,8 +107,16 @@ const VIEWS = {
       const a = path0.area(f);
       area[id] = (area[id] || 0) + a;
       if (!cent[id] || a > cent[id][2]) cent[id] = [...path0.centroid(f), a];
+      const [[x0, y0], [x1, y1]] = path0.bounds(f);
+      bb[id] = bb[id] ? [Math.min(bb[id][0], x0), Math.min(bb[id][1], y0), Math.max(bb[id][2], x1), Math.max(bb[id][3], y1)] : [x0, y0, x1, y1];
     });
-    Object.keys(c).forEach((id) => { if (area[id] < DOT_AREA) dot[id] = [r1(cent[id][0]), r1(cent[id][1])]; });
+    // dot[id] = [x, y, r]: ring centre and the radius (map units) that covers the island group, when it's compact.
+    Object.keys(c).forEach((id) => {
+      if (!(area[id] < TINY || (island.has(id) && area[id] < ISLAND))) return;
+      const [x0, y0, x1, y1] = bb[id], w = x1 - x0, hh = y1 - y0;
+      if (Math.max(w, hh) < 50) dot[id] = [r1((x0 + x1) / 2), r1((y0 + y1) / 2), r1(Math.hypot(w, hh) / 2)];
+      else dot[id] = [r1(cent[id][0]), r1(cent[id][1]), 0];
+    });
     return { proj, map: { w: W, h: H, land, c, dot } };
   }
   const world = build([0, 0]);
@@ -106,13 +128,15 @@ const VIEWS = {
   const views = {};
   for (const [reg, [which, box]] of Object.entries(VIEWS)) {
     const { proj, map } = which === 'world' ? world : pacific;
-    if (!box) { views[reg] = { map: which, box: [0, 0, map.w, map.h] }; continue; }
-    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
-    for (let i = 0; i <= 20; i++) for (let j = 0; j <= 20; j++) {
-      const p = proj([box[0] + (box[1] - box[0]) * i / 20, box[2] + (box[3] - box[2]) * j / 20]);
-      if (!p) continue; x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]);
-    }
-    views[reg] = { map: which, box: [Math.round(x0), Math.round(y0), Math.round(x1 - x0), Math.round(y1 - y0)] };
+    const boxOf = (b) => {
+      let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+      for (let i = 0; i <= 20; i++) for (let j = 0; j <= 20; j++) {
+        const p = proj([b[0] + (b[1] - b[0]) * i / 20, b[2] + (b[3] - b[2]) * j / 20]);
+        if (!p) continue; x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]);
+      }
+      return [Math.round(x0), Math.round(y0), Math.round(x1 - x0), Math.round(y1 - y0)];
+    };
+    views[reg] = { map: which, box: box ? boxOf(box) : [0, 0, map.w, map.h], tight: boxOf(TIGHT[reg]) };
     // Every country of the region must be on that map.
     DATA.filter((x) => x.region === reg).forEach((x) => { if (!map.c[x.id]) throw new Error(x.id + ' missing on ' + which + ' map'); });
   }

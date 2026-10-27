@@ -79,13 +79,13 @@ function makeRun(cfg) {
     return q;
   });
 }
-// Board: the order of the tiles / map prompts for each game. Capitals are listed A–Z like on JetPunk;
-// flags and shapes are shuffled (A–Z would give them away); map prompts come in a shuffled order.
+// Board: the order of the tiles / map prompts for each game. Everything is shuffled (every new run gets a new
+// seed, so you can't learn the order); the same code always gives the same order, so challenges stay fair.
 function makeBoard(cfg) {
   return cfg.games.map((g, i) => {
     const r = rng((cfg.seed * 31 + i * 7919 + g.length * 104729) >>> 0);
     const ids = pool(cfg.region);
-    return { game: g, kind: kindOfGame(g), ids: g === 'capitals' ? byName(ids) : shuffle(ids, r) };
+    return { game: g, kind: kindOfGame(g), ids: shuffle(ids, r) };
   });
 }
 
@@ -180,5 +180,52 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* private mode: fine */ } },
 };
 
-window.GS = { norm, isRight, answersFor, makeRun, makeBoard, encodeCode, decodeCode, fmtTime, pool, rng, better, compare, GAME_ORDERS, cfgLabel, DATA };
+/* ---------------- spelling help ---------------- */
+// Optimal string alignment distance (Levenshtein + swapped neighbours), stopping early past `max`.
+function editDistance(a, b, max) {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let prev2 = null, prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i]; let rowMin = i;
+    for (let j = 1; j <= b.length; j++) {
+      let v = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      if (prev2 && i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) v = Math.min(v, prev2[j - 2] + 1);
+      cur.push(v); if (v < rowMin) rowMin = v;
+    }
+    if (rowMin > max) return max + 1;
+    prev2 = prev; prev = cur;
+  }
+  return prev[b.length];
+}
+// All spellings to compare against, for countries or capitals: [normalised spelling, id].
+const spellCache = {};
+function spellings(kind) {
+  const k = kind === 'capital' ? 'capital' : 'country';
+  if (!spellCache[k]) {
+    spellCache[k] = [];
+    DATA.forEach((c) => (k === 'capital' ? [c.capital, ...c.capitals] : [c.name, ...c.names]).forEach((x) => { const n = norm(x); if (n.length >= 3) spellCache[k].push([n, c.id]); }));
+  }
+  return spellCache[k];
+}
+// "Did you mean …?" — the closest country (or capital) to what was typed, if it's close enough. Compares against
+// every country in the world, not just the right answer, so the hint never gives the answer away.
+// Returns up to 2 equally close suggestions, nearest in length first: [{ id, text }], or [] when nothing is close.
+function suggest(typed, kind) {
+  const n = norm(typed);
+  if (n.length < 4) return [];
+  const max = n.length >= 12 ? 3 : n.length >= 7 ? 2 : 1;
+  let bestD = max + 1, hits = [];
+  for (const [s, id] of spellings(kind)) {
+    if (s === n) return []; // already spelled right (for some country)
+    const d = editDistance(n, s, bestD);
+    if (d < bestD) { bestD = d; hits = [[id, s]]; } else if (d === bestD) hits.push([id, s]);
+  }
+  if (bestD > max) return [];
+  const seen = new Set(), out = [];
+  hits.sort((x, y) => Math.abs(x[1].length - n.length) - Math.abs(y[1].length - n.length))
+    .forEach(([id]) => { if (!seen.has(id) && out.length < 2) { seen.add(id); out.push({ id, text: kind === 'capital' ? BY_ID[id].capital : BY_ID[id].name }); } });
+  return out;
+}
+
+window.GS = { suggest, editDistance, norm, isRight, answersFor, makeRun, makeBoard, encodeCode, decodeCode, fmtTime, pool, rng, better, compare, GAME_ORDERS, cfgLabel, DATA };
 if (window.GS_NO_UI) return;
