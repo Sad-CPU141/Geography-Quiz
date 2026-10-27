@@ -1,16 +1,18 @@
 # Geography Speedrun
 
-A Game Night game: name **flags**, **country shapes** or **capitals** (or a **mix**) as fast as you can.
-The clock runs the whole time; skips (+10 s) and wrong taps (+5 s) add penalty time. Lowest time wins.
+A Game Night game: geography against the clock.
 
 **Play:** https://sad-cpu141.github.io/Geography-Quiz/ · part of [Game Night](https://sad-cpu141.github.io/)
 
-- Pick a region (World, Africa, Asia, Europe, North & Central America, South America, Oceania) and a length (10 up to all 197).
-- Answer by typing (it moves on by itself as soon as the answer is right) or by picking from four.
-- **Challenge a friend:** every run has an 8-character code. Send the link and your friend gets the exact same
-  questions in the same order, with your time to beat. Or type the code on the home screen.
+- **Full board** (JetPunk & Seterra style): pick any of **Flags**, **Map**, **Capitals** and **Shapes**, in the order you want, and play them back to back on one clock.
+  - Flags / Shapes / Capitals: every country on one board. Tap a tile, type the answer, it fills in and jumps to the next.
+  - Map: the whole map; it names a country and you tap it (3 tries each). Pinch or scroll to zoom.
+  - Give up any time to see what you missed. Most found wins; the faster time breaks a tie.
+- **Quick fire**: one question at a time, type it or pick from 4, with time penalties.
+- Regions: World (197), Africa, Asia, Europe, North & Central America, South America, Oceania.
+- **Challenge a friend:** every run has an 8-character code. Send the link and your friend gets exactly the same run, with your score to beat.
 - **Pass the phone:** 2–8 players take turns on the same run, then see a leaderboard.
-- Best times are kept on the device. Works offline once opened (service worker).
+- Best times are kept on the device. Works offline once opened.
 
 ## Developing
 Static site, plain JavaScript, no libraries at runtime.
@@ -18,8 +20,9 @@ Static site, plain JavaScript, no libraries at runtime.
 ```
 npm install
 npm run data    # rebuild src/data.js and flags/ from the data packages (only if the data changes)
+npm run map     # rebuild src/map.js (the clickable map) after npm run data
 npm run build   # src/ → index.html, app.js, data.js, styles.css, sw.js (stamps a version)
-npm test        # logic checks (answer matching, challenge codes, runs)
+npm test        # build + logic checks (answer matching, challenge codes, boards, map data)
 npm run shots   # real-browser play-throughs + screenshots at phone/laptop/TV sizes (needs Playwright)
 ```
 

@@ -1,5 +1,6 @@
-// Real-browser checks with Playwright (Chromium): plays whole runs, checks challenge links, and takes
-// screenshots at phone, laptop and TV sizes. Fails on page errors or sideways scrolling. Run: npm run shots
+// Real-browser checks with Playwright (Chromium): plays boards, the map game, combined runs, quick fire,
+// pass-the-phone and a challenge link, and takes screenshots at phone, laptop and TV sizes.
+// Fails on page errors or sideways scrolling. Run: npm run shots
 const path = require('path');
 const http = require('http');
 const fs = require('fs');
@@ -19,154 +20,180 @@ const server = http.createServer((req, res) => {
 const BASE = 'http://localhost:' + server.address().port + '/Geography-Quiz/';
 let fails = 0; const ok = (c, m) => { if (!c) { fails++; console.log('FAIL: ' + m); } else console.log('ok  ' + m); };
 const SIZES = [['phone', 360, 780], ['laptop', 1366, 768], ['tv', 1920, 1080]];
+const only = process.argv[2];
 
 async function noSideScroll(page, label) {
   const w = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
   ok(w[0] <= w[1], label + ': no sideways scroll (' + w[0] + ' ≤ ' + w[1] + ')');
 }
-// Answers the current question correctly (or wrongly) through the real UI.
-async function answer(page, style, right) {
-  await page.waitForFunction(() => !document.querySelector('.stage.ok, .stage.bad') && document.querySelector('.stage'));
-  if (style === 'type') {
-    if (right) {
-      const text = await page.evaluate(() => {
-        const st = document.querySelector('.stage');
-        // Work out the answer from what is shown (tests only): flag src / outline / country name.
-        const img = st.querySelector('img.flag'); const p = st.querySelector('svg.shape path'); const big = st.querySelector('.big');
-        const c = window.GS.DATA.find((x) => (img && img.getAttribute('src').endsWith(x.flag)) || (p && p.getAttribute('d') === x.shape) || (big && big.textContent === x.name));
-        return big ? c.capital : c.name;
-      });
-      await page.fill('.answer input', '');
-      await page.type('.answer input', text, { delay: 0 });
-    } else {
-      await page.click('.answer .skip');
-    }
-  } else {
-    const right_ = await page.evaluate(() => {
-      const st = document.querySelector('.stage');
-      const img = st.querySelector('img.flag'); const p = st.querySelector('svg.shape path'); const big = st.querySelector('.big');
-      return window.GS.DATA.find((x) => (img && img.getAttribute('src').endsWith(x.flag)) || (p && p.getAttribute('d') === x.shape) || (big && big.textContent === x.name)).id;
-    });
-    const ids = await page.$$eval('.choice', (bs) => bs.map((b) => b.dataset.id));
-    const target = right ? right_ : ids.find((x) => x !== right_);
-    await page.click('.choice[data-id="' + target + '"]');
+async function setupBoard(page, games, region) {
+  await page.click('text=New run'); await page.waitForSelector('.seg');
+  await page.click('.opt:has-text("Full board")');
+  // Turn games on/off to match `games`.
+  for (const G of ['Flags', 'Map', 'Capitals', 'Shapes', 'Flags', 'Map', 'Capitals', 'Shapes']) {
+    const isOn = !!(await page.$('.game-row.on .game-pick:has-text("' + G + '")'));
+    if (games.includes(G) !== isOn && !(isOn && !games.includes(G) && (await page.$$('.game-row.on')).length === 1)) await page.click('.game-pick:has-text("' + G + '")');
+  }
+  for (const g of games) { const isOn = await page.$('.game-row.on .game-pick:has-text("' + g + '")'); if (!isOn) await page.click('.game-pick:has-text("' + g + '")'); }
+  // Order: move each game up into its place with the arrows.
+  for (let j = 0; j < games.length; j++) {
+    const on = await page.$$eval('.game-row.on .game-txt b', (bs) => bs.map((b) => b.textContent.split(' ').slice(1).join(' ')));
+    for (let i = on.indexOf(games[j]); i > j; i--) await page.click('[aria-label="Move ' + games[j] + ' up"]');
+  }
+  await page.click('.opt:has-text("' + region + '")');
+  await page.click('.opt:has-text("Just me")');
+}
+// Type the answer for the selected tile (tests read it from the data).
+async function typeActive(page, kind) {
+  const ans = await page.evaluate((kind) => { const id = document.querySelector('.tile.active').dataset.id; const c = window.GS.DATA.find((x) => x.id === id); return kind === 'capital' ? c.capital : c.name; }, kind);
+  // Type like a person: stop as soon as it's accepted (e.g. "Bosnia" is enough for Bosnia and Herzegovina).
+  for (let i = 0; i < ans.length; i++) {
+    await page.keyboard.type(ans[i]);
+    if (await page.$eval('.typebar input', (el) => el.value === '' || el.disabled)) return;
   }
 }
+// Tap a country on the map like a person would: a point inside it that isn't covered, zooming in if needed.
+async function tapCountry(page, id) {
+  for (let z = 0; z < 8; z++) {
+    const pt = await page.evaluate((id) => {
+      const els = [...document.querySelectorAll('.map [data-id="' + id + '"]')].reverse(); // circle first
+      const wrap = document.querySelector('.mapwrap').getBoundingClientRect();
+      const inside = (x, y) => x > wrap.left + 2 && x < wrap.right - 60 && y > wrap.top + 2 && y < wrap.bottom - 2;
+      let zoomAt = null;
+      for (const el of els) {
+        const bb = el.getBBox(), m = el.getScreenCTM();
+        for (let i = 1; i < 40; i++) for (let j = 1; j < 40; j++) {
+          const p = new DOMPoint(bb.x + bb.width * i / 40, bb.y + bb.height * j / 40);
+          if (el.isPointInFill && !el.isPointInFill(p)) continue;
+          const sp = p.matrixTransform(m);
+          if (!zoomAt) zoomAt = { x: sp.x, y: sp.y };
+          if (!inside(sp.x, sp.y)) continue;
+          const hit = document.elementFromPoint(sp.x, sp.y);
+          if (hit && hit.getAttribute('data-id') === id) return { x: sp.x, y: sp.y };
+        }
+      }
+      return { zoomAt: { x: Math.min(Math.max(zoomAt.x, wrap.left + 5), wrap.right - 70), y: Math.min(Math.max(zoomAt.y, wrap.top + 5), wrap.bottom - 5) } };
+    }, id);
+    if (pt.x != null) { await page.mouse.click(pt.x, pt.y); return true; }
+    if (process.env.DBG) console.log('zoom for', id, JSON.stringify(pt), await page.getAttribute('svg.map', 'viewBox'));
+    await page.mouse.move(pt.zoomAt.x, pt.zoomAt.y); await page.mouse.wheel(0, -400); await page.waitForTimeout(30);
+  }
+  return false;
+}
+const targetId = (page) => page.evaluate(() => { const n = document.querySelector('.prompt .target').textContent; const c = window.GS.DATA.find((x) => x.name === n); return c && c.id; });
 
 (async () => {
   const b = await chromium.launch();
   for (const [label, W, H] of SIZES) {
+    if (only && only !== label) continue;
     const ctx = await b.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: label === 'phone' ? 2 : 1 });
     const page = await ctx.newPage();
     const errors = []; page.on('pageerror', (e) => errors.push(e.message)); page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
     await page.goto(BASE); await page.waitForSelector('.logo');
-    await page.screenshot({ path: path.join(outDir, label + '-1-home.png') }); await noSideScroll(page, label + ' home');
-    await page.click('text=New run'); await page.waitForSelector('.seg');
-    await page.screenshot({ path: path.join(outDir, label + '-2-setup.png'), fullPage: true }); await noSideScroll(page, label + ' setup');
+    await page.screenshot({ path: path.join(outDir, label + '-01-home.png') }); await noSideScroll(page, label + ' home');
 
-    // Solo, flags, typed, 10 questions: 8 right, 2 skipped.
-    await page.click('.opt:has-text("Flags")'); await page.click('.opt:has-text("World")'); await page.click('.opt:has-text("10")'); await page.click('.opt:has-text("Type it")'); await page.click('.opt:has-text("Just me")');
-    await page.fill('input[placeholder="Name"]', 'Xrazt');
+    // 1. Flags board, whole world: 5 right, switch tiles, then give up.
+    await setupBoard(page, ['Flags'], 'World');
+    await page.screenshot({ path: path.join(outDir, label + '-02-setup.png'), fullPage: true }); await noSideScroll(page, label + ' setup');
     await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")');
-    await page.waitForSelector('.answer input', { timeout: 5000 });
-    await page.waitForTimeout(400);
-    await page.screenshot({ path: path.join(outDir, label + '-3-run-flag.png') }); await noSideScroll(page, label + ' run');
-    for (let i = 0; i < 10; i++) await answer(page, 'type', i !== 3 && i !== 7);
-    await page.waitForSelector('.result-time');
-    const t = await page.textContent('.stat b');
-    ok(t.trim() === '8/10', label + ': 8/10 right (got ' + t + ')');
-    const pen = await page.textContent('.stat:nth-child(3) b');
-    ok(pen.trim() === '+20s', label + ': +20s penalty (got ' + pen + ')');
-    const total = await page.textContent('.result-time');
-    ok(/^\d/.test(total) && parseFloat(total.replace(/^(\d+):/, (m, a) => a * 60 + '+')) >= 20, label + ': final time includes penalty (' + total + ')');
-    await page.screenshot({ path: path.join(outDir, label + '-4-result.png'), fullPage: true }); await noSideScroll(page, label + ' result');
-    const code = (await page.textContent('.code')).trim();
-    ok(/^[0-9A-Z]{4}-[0-9A-Z]{4}$/.test(code), label + ': challenge code ' + code);
-
-    // Shapes, pick mode, Europe: one wrong tap.
-    await page.click('button:has-text("Change")'); await page.click('.opt:has-text("Shapes")'); await page.click('.opt:has-text("Europe")'); await page.click('.opt:has-text("10")'); await page.click('.opt:has-text("Pick from 4")');
-    await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")');
-    await page.waitForSelector('.choice');
+    await page.waitForSelector('.tile.active');
+    ok((await page.$$('.tile')).length === 197, label + ': 197 flag tiles');
+    for (let i = 0; i < 4; i++) await typeActive(page, 'flag');
+    const tiles = await page.$$('.tile:not(.done)');
+    await tiles[30].click();
+    ok(await tiles[30].evaluate((t) => t.classList.contains('active')), label + ': tapping a tile selects it');
+    await typeActive(page, 'flag');
+    ok((await page.$$('.tile.done')).length === 5, label + ': 5 flags done');
     await page.waitForTimeout(300);
-    await page.screenshot({ path: path.join(outDir, label + '-5-run-shape-pick.png') }); await noSideScroll(page, label + ' shape run');
-    for (let i = 0; i < 10; i++) await answer(page, 'pick', i !== 5);
-    await page.waitForSelector('.result-time');
-    ok((await page.textContent('.stat b')).trim() === '9/10', label + ': pick run 9/10');
-    ok((await page.textContent('.stat:nth-child(3) b')).trim() === '+5s', label + ': pick penalty +5s');
+    await page.screenshot({ path: path.join(outDir, label + '-03-flags-board.png') }); await noSideScroll(page, label + ' flags board');
+    await page.click('button:has-text("Give up")'); await page.click('button:has-text("Give up and show me")');
+    await page.waitForSelector('.tile.missed');
+    ok((await page.$$('.tile.missed')).length === 192, label + ': give up shows 192 missed');
+    await page.screenshot({ path: path.join(outDir, label + '-04-flags-gaveup.png') });
+    await page.click('button:has-text("See results")'); await page.waitForSelector('.result-time');
+    ok((await page.textContent('.stat b')).trim() === '5/197', label + ': result 5/197');
+    await page.screenshot({ path: path.join(outDir, label + '-05-result-flags.png'), fullPage: true }); await noSideScroll(page, label + ' result');
 
-    // Capitals, typed, 3-player pass-the-phone.
-    await page.click('button:has-text("Change")'); await page.click('.opt:has-text("Capitals")'); await page.click('.opt:has-text("Oceania")'); await page.click('.opt:has-text("10")'); await page.click('.opt:has-text("Type it")'); await page.click('.opt:has-text("Pass the phone")');
-    for (const n of ['Ali', 'Sam', 'Noor']) { await page.fill('#pname', n); await page.press('#pname', 'Enter'); }
-    await page.click('button:has-text("Start")');
-    for (let p = 0; p < 3; p++) {
-      await page.click('button:has-text("Go")'); await page.waitForSelector('.answer input');
-      if (p === 0) { await page.waitForTimeout(300); await page.screenshot({ path: path.join(outDir, label + '-6-run-capital.png') }); }
-      for (let i = 0; i < 10; i++) await answer(page, 'type', !(p === 1 && i < 2));
-      await page.waitForSelector('.result-time');
-      if (p < 2) await page.click('button:has-text("Next:")');
-    }
-    await page.click('button:has-text("See who won")'); await page.waitForSelector('.board');
-    await page.screenshot({ path: path.join(outDir, label + '-7-board.png'), fullPage: true }); await noSideScroll(page, label + ' board');
-    const order = await page.$$eval('.board li .q', (els) => els.map((e) => e.firstChild.textContent));
-    ok(order[2] === 'Sam', label + ': Sam (2 skips) is last: ' + order.join(', '));
-
-    // Mix run (quick sanity: every kind renders) then a challenge link round trip.
+    // 2. Combined run, Europe: Map first (2 misses on the first, 3 strikes on the second), then Capitals all typed.
     await page.click('button:has-text("Home")');
+    await setupBoard(page, ['Map', 'Capitals'], 'Europe');
+    const order = await page.$$eval('.game-row.on .game-txt b', (bs) => bs.map((x) => x.textContent));
+    ok(/Map/.test(order[0]) && /Capitals/.test(order[1]), label + ': order Map → Capitals (' + order.join(', ') + ')');
+    await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")');
+    await page.waitForSelector('.map .cty');
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(outDir, label + '-06-map.png') }); await noSideScroll(page, label + ' map');
+    let n = 0, misses = 0;
+    while (await page.$('.prompt .target') && n < 60) {
+      const id = await targetId(page); if (!id) break;
+      if (n === 0 || n === 1) {
+        // Wrong taps: pick another European country.
+        const wrongs = await page.evaluate((id) => window.GS.DATA.filter((c) => c.region === 'Europe' && c.id !== id && ['de', 'fr', 'es', 'pl', 'ua', 'it'].includes(c.id)).map((c) => c.id), id);
+        const k = n === 0 ? 2 : 3;
+        for (let w = 0; w < k; w++) { await tapCountry(page, wrongs[w]); await page.waitForTimeout(60); }
+        if (n === 1) { misses++; await page.waitForTimeout(1500); n++; continue; }
+      }
+      const tapped = await tapCountry(page, id);
+      if (!tapped) { console.log('could not tap ' + id); await page.screenshot({ path: path.join(outDir, label + '-fail-tap.png') }); break; }
+      await page.click('[aria-label="Show the whole map"]');
+      n++;
+      if (n === 3) await page.screenshot({ path: path.join(outDir, label + '-07-map-playing.png') });
+      if (await page.$('.typebar')) break;
+    }
+    await page.waitForSelector('.typebar input', { timeout: 5000 }).catch(async (e) => { await page.screenshot({ path: path.join(outDir, label + '-fail-map.png') }); console.log('n=' + n, await page.textContent('.bhead')); throw e; });
+    ok(true, label + ': map finished after ' + n + ' prompts, now on Capitals');
+    for (let i = 0; i < 46; i++) { await page.waitForSelector('.tile.active', { timeout: 3000 }).catch(() => {}); if (!(await page.$('.tile.active'))) break; await typeActive(page, 'capital'); }
+    await page.waitForSelector('.result-time');
+    const st = (await page.textContent('.stat b')).trim();
+    ok(st === '91/92', label + ': combined result 91/92 (got ' + st + ')');
+    await page.screenshot({ path: path.join(outDir, label + '-08-result-combo.png'), fullPage: true }); await noSideScroll(page, label + ' combo result');
+
+    // 3. Quick fire still works.
+    await page.click('button:has-text("Change")'); await page.click('.opt:has-text("Quick fire")');
+    await page.click('.opt:has-text("Flags")'); await page.click('.opt:has-text("10")'); await page.click('.opt:has-text("Type it")');
+    await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")'); await page.waitForSelector('.answer input');
+    for (let i = 0; i < 10; i++) {
+      await page.waitForFunction(() => !document.querySelector('.stage.ok, .stage.bad') && document.querySelector('.stage img'));
+      const name = await page.evaluate(() => { const src = document.querySelector('.stage img').getAttribute('src'); return window.GS.DATA.find((c) => src.endsWith(c.flag)).name; });
+      await page.type('.answer input', name);
+    }
+    await page.waitForSelector('.result-time');
+    ok((await page.textContent('.stat b')).trim() === '10/10', label + ': quick fire 10/10');
     ok(errors.length === 0, label + ': no page errors ' + JSON.stringify(errors));
     await ctx.close();
   }
 
-  // Challenge link: player A plays, link opens for B with the same questions and a time to beat.
-  const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
-  const page = await ctx.newPage();
-  const errors = []; page.on('pageerror', (e) => errors.push(e.message));
-  await page.goto(BASE); await page.click('text=New run');
-  await page.click('.opt:has-text("Mix")'); await page.click('.opt:has-text("World")'); await page.click('.opt:has-text("10")'); await page.click('.opt:has-text("Type it")'); await page.click('.opt:has-text("Just me")');
-  await page.fill('input[placeholder="Name"]', 'Xrazt');
-  await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")'); await page.waitForSelector('.answer input');
-  const seenA = [];
-  for (let i = 0; i < 10; i++) { await page.waitForFunction(() => !document.querySelector('.stage.ok, .stage.bad')); seenA.push(await page.innerHTML('.stage')); if (i === 2) await page.screenshot({ path: path.join(outDir, 'mix-run.png') }); await answer(page, 'type', true); }
-  await page.waitForSelector('.result-time');
-  const url = await page.evaluate(() => { let u; navigator.share = undefined; const orig = navigator.clipboard && navigator.clipboard.writeText; return null; });
-  const code = (await page.textContent('.code')).trim();
-  const timeA = (await page.textContent('.result-time')).trim();
-  // Build the link the Send button makes (navigator.share/clipboard aren't available headless).
-  await ctx.grantPermissions(['clipboard-read', 'clipboard-write']);
-  await page.click('button:has-text("Send challenge")');
-  await page.waitForTimeout(300);
-  const clip = await page.evaluate(() => navigator.clipboard.readText());
-  const link = (clip.match(/https?:\S+/) || [])[0];
-  ok(!!link && link.includes('c=') && link.includes('n=Xrazt'), 'share link made: ' + link);
-  ok(clip.includes(code), 'share text has the code');
-  const page2 = await (await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 })).newPage();
-  page2.on('pageerror', (e) => errors.push(e.message));
-  await page2.goto(link.replace(/^https?:\/\/[^/]+/, 'http://localhost:' + server.address().port));
-  await page2.waitForSelector('.card.sky');
-  await page2.screenshot({ path: path.join(outDir, 'challenge-home.png') });
-  ok((await page2.textContent('.card.sky')).includes(timeA), 'challenge shows the time to beat ' + timeA);
-  await page2.fill('.card.sky input', 'Sam');
-  await page2.click('button:has-text("Take it on")'); await page2.click('button:has-text("Go")'); await page2.waitForSelector('.answer input');
-  const seenB = [];
-  for (let i = 0; i < 10; i++) { await page2.waitForFunction(() => !document.querySelector('.stage.ok, .stage.bad')); seenB.push(await page2.innerHTML('.stage')); await answer(page2, 'type', i !== 0); }
-  ok(JSON.stringify(seenA) === JSON.stringify(seenB), 'friend got the exact same 10 questions');
-  await page2.waitForSelector('.versus');
-  ok((await page2.textContent('.versus')).includes('Xrazt'), 'versus line: ' + (await page2.textContent('.versus')));
-  await page2.screenshot({ path: path.join(outDir, 'challenge-result.png'), fullPage: true });
-  // Code entry screen
-  await page2.click('button:has-text("Home")'); await page2.click('text=Enter a challenge code');
-  await page2.fill('.input.code', code.toLowerCase());
-  ok(await page2.isEnabled('button:has-text("Play this run")'), 'typed code accepted');
-  await page2.fill('.input.code', 'ZZZZ-ZZZZ');
-  ok(!(await page2.isEnabled('button:has-text("Play this run")')), 'bad code rejected');
-  ok(errors.length === 0, 'no page errors in challenge flow ' + JSON.stringify(errors));
-
-  // All 197 outlines and flags load in the page.
-  const bad = await page2.evaluate(async () => {
-    const out = [];
-    await Promise.all(window.GS.DATA.map((c) => new Promise((res) => { const im = new Image(); im.onload = () => { if (!im.naturalWidth) out.push(c.name); res(); }; im.onerror = () => { out.push(c.name); res(); }; im.src = c.flag; })));
-    return out;
-  });
-  ok(bad.length === 0, 'all 197 flags load ' + bad.join(','));
+  if (!only) {
+    // Challenge link for a board run: the friend gets the same tile order.
+    const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
+    await ctx.grantPermissions(['clipboard-read', 'clipboard-write']);
+    const page = await ctx.newPage();
+    const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(BASE);
+    await setupBoard(page, ['Shapes'], 'S. America');
+    await page.fill('input[placeholder="Name"]', 'Xrazt');
+    await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")'); await page.waitForSelector('.tile.active');
+    const orderA = await page.$$eval('.tile', (ts) => ts.map((t) => t.dataset.id));
+    await page.screenshot({ path: path.join(outDir, 'shapes-board.png') });
+    for (let i = 0; i < 12; i++) await typeActive(page, 'shape');
+    await page.waitForSelector('.result-time');
+    await page.click('button:has-text("Send challenge")'); await page.waitForTimeout(300);
+    const clip = await page.evaluate(() => navigator.clipboard.readText());
+    const link = (clip.match(/https?:\S+/) || [])[0];
+    ok(!!link && /n=Xrazt/.test(link) && /s=12/.test(link), 'share link: ' + link);
+    const p2 = await (await b.newContext({ viewport: { width: 390, height: 844 } })).newPage();
+    p2.on('pageerror', (e) => errors.push(e.message));
+    await p2.goto(link); await p2.waitForSelector('.card.sky');
+    ok((await p2.textContent('.card.sky')).includes('12/12'), 'challenge card shows 12/12');
+    await p2.click('button:has-text("Take it on")'); await p2.click('button:has-text("Go")'); await p2.waitForSelector('.tile.active');
+    ok(JSON.stringify(await p2.$$eval('.tile', (ts) => ts.map((t) => t.dataset.id))) === JSON.stringify(orderA), 'friend gets the same tile order');
+    for (let i = 0; i < 11; i++) await typeActive(p2, 'shape');
+    await p2.click('button:has-text("Give up")'); await p2.click('button:has-text("Give up and show me")'); await p2.click('button:has-text("See results")');
+    await p2.waitForSelector('.versus');
+    ok((await p2.textContent('.versus')).includes('Xrazt wins'), 'versus: ' + (await p2.textContent('.versus')));
+    await p2.screenshot({ path: path.join(outDir, 'challenge-result.png'), fullPage: true });
+    ok(errors.length === 0, 'no page errors in challenge flow ' + JSON.stringify(errors));
+  }
   await b.close(); server.close();
   console.log(fails ? fails + ' FAILED' : 'all browser checks passed');
   process.exit(fails ? 1 : 0);

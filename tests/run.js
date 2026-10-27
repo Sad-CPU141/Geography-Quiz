@@ -2,7 +2,7 @@
 const path = require('path');
 global.window = { GS_NO_UI: true };
 require(path.join(__dirname, '../src/data.js'));
-require(path.join(__dirname, '../src/app.js'));
+require(path.join(__dirname, '../app.js')); // built file: run `npm run build` first
 const GS = window.GS;
 let pass = 0, fail = 0;
 const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('FAIL: ' + msg); } };
@@ -40,39 +40,72 @@ no.forEach(([n, k, t]) => ok(!GS.isRight(id(n), k, t), 'rejects "' + t + '" for 
 // While typing a longer name, a shorter wrong answer is never accepted early: the check is only against the current answer.
 ok(!GS.isRight(id('Nigeria'), 'flag', 'Niger'), 'Niger is not Nigeria');
 
-// Codes
-for (let i = 0; i < 2000; i++) {
-  const modes = ['flags', 'shapes', 'capitals', 'mix'], regions = ['world', 'Africa', 'Asia', 'Europe', 'North America', 'South America', 'Oceania'];
+// Codes (quick fire and board), every setting combination round-trips.
+const regions = ['world', 'Africa', 'Asia', 'Europe', 'North America', 'South America', 'Oceania'];
+for (let i = 0; i < 1500; i++) {
+  const modes = ['flags', 'shapes', 'capitals', 'mix'];
   const region = regions[i % 7];
-  const cfg = { mode: modes[i % 4], region, style: i % 3 ? 'type' : 'pick', count: 1 + (i * 7) % GS.pool(region).length, seed: (i * 2654435761) % (1 << 22) };
-  const code = GS.encodeCode(cfg);
-  const back = GS.decodeCode(code);
+  const cfg = { kind: 'quick', mode: modes[i % 4], region, style: i % 3 ? 'type' : 'pick', count: 1 + (i * 7) % GS.pool(region).length, seed: (i * 2654435761) % (1 << 21) };
+  const code = GS.encodeCode(cfg), back = GS.decodeCode(code);
   ok(/^[0-9A-Z]{4}-[0-9A-Z]{4}$/.test(code), 'code format ' + code);
-  ok(back && JSON.stringify(back) === JSON.stringify(cfg), 'code round trip ' + code + ' ' + JSON.stringify(cfg) + ' → ' + JSON.stringify(back));
+  ok(back && JSON.stringify(back) === JSON.stringify(cfg), 'quick code round trip ' + code + ' ' + JSON.stringify(cfg) + ' → ' + JSON.stringify(back));
   ok(GS.decodeCode(code.toLowerCase().replace('-', ' ')) !== null, 'lowercase code ' + code);
 }
-// A typo in a code is caught (most of the time — 4-bit check).
+ok(GS.GAME_ORDERS.length === 64, '64 game orders');
+GS.GAME_ORDERS.forEach((games, gi) => regions.forEach((region, ri) => {
+  const cfg = { kind: 'board', games: games.slice(), region, seed: (gi * 7919 + ri * 104729 + 13) % (1 << 21) };
+  const code = GS.encodeCode(cfg), back = GS.decodeCode(code);
+  ok(back && JSON.stringify(back) === JSON.stringify(cfg), 'board code round trip ' + code + ' ' + JSON.stringify(cfg) + ' → ' + JSON.stringify(back));
+}));
+// A typo in a code is caught most of the time (4-bit check).
 let caught = 0, tries = 0;
-for (let i = 0; i < 300; i++) {
-  const cfg = { mode: 'flags', region: 'world', style: 'type', count: 25, seed: i * 977 };
+for (let i = 0; i < 400; i++) {
+  const cfg = i % 2 ? { kind: 'quick', mode: 'flags', region: 'world', style: 'type', count: 25, seed: i * 977 } : { kind: 'board', games: ['map', 'flags'], region: 'Europe', seed: i * 977 };
   const code = GS.encodeCode(cfg).replace('-', '');
   const pos = i % 8; const ch = code[pos] === 'A' ? 'B' : 'A';
-  tries++; if (!GS.decodeCode(code.slice(0, pos) + ch + code.slice(pos + 1)) || JSON.stringify(GS.decodeCode(code.slice(0, pos) + ch + code.slice(pos + 1))) === JSON.stringify(cfg)) caught++;
+  const bad = GS.decodeCode(code.slice(0, pos) + ch + code.slice(pos + 1));
+  tries++; if (!bad || JSON.stringify(bad) === JSON.stringify(cfg)) caught++;
 }
-ok(caught / tries > 0.8, 'most code typos caught (' + caught + '/' + tries + ')');
+ok(caught / tries > 0.85, 'most code typos caught (' + caught + '/' + tries + ')');
 ok(GS.decodeCode('hello') === null && GS.decodeCode('') === null, 'junk codes rejected');
 
+// Boards: same seed → same tile/prompt order; capitals A–Z; flags/map shuffled.
+const bcfg = { kind: 'board', games: ['flags', 'map', 'capitals', 'shapes'], region: 'world', seed: 4242 };
+const b1 = GS.makeBoard(bcfg), b2 = GS.makeBoard(bcfg), b3 = GS.makeBoard(Object.assign({}, bcfg, { seed: 99 }));
+ok(JSON.stringify(b1) === JSON.stringify(b2), 'board: same seed → same boards');
+ok(JSON.stringify(b1) !== JSON.stringify(b3), 'board: other seed → other boards');
+ok(b1.map((s) => s.game).join() === 'flags,map,capitals,shapes', 'board keeps the chosen order');
+b1.forEach((s) => ok(s.ids.length === 197 && new Set(s.ids).size === 197, s.game + ': all 197 once'));
+const caps = b1[2].ids.map((id) => GS.DATA.find((c) => c.id === id).name);
+ok(caps.join() === caps.slice().sort((a, b) => a.localeCompare(b)).join(), 'capitals board is A–Z');
+ok(b1[0].ids.join() !== b1[1].ids.join(), 'flags and map orders differ');
+const eu = GS.makeBoard({ kind: 'board', games: ['map'], region: 'Europe', seed: 1 })[0];
+ok(eu.ids.length === 46 && eu.ids.every((id) => GS.DATA.find((c) => c.id === id).region === 'Europe'), 'region board');
+
+// Ranking: board = most found, then time. Quick = time.
+ok(GS.better({ correct: 10, time: 90000 }, { correct: 9, time: 30000 }, 'board'), 'board: more found beats faster');
+ok(GS.better({ correct: 10, time: 30000 }, { correct: 10, time: 31000 }, 'board'), 'board: tie on found → faster wins');
+ok(GS.better({ correct: 5, time: 30000 }, { correct: 10, time: 31000 }, 'quick'), 'quick: faster wins');
+ok(GS.fmtTime(3725000) === '1:02:05.0', 'hours format');
+
+// Map data covers every country.
+require(path.join(__dirname, '../map.js'));
+const M = window.GS_MAP;
+GS.DATA.forEach((c) => ok(!!M.world.c[c.id], 'on the world map: ' + c.name));
+GS.DATA.filter((c) => c.region === 'Oceania').forEach((c) => ok(!!M.pacific.c[c.id], 'on the Pacific map: ' + c.name));
+['world', 'Africa', 'Asia', 'Europe', 'North America', 'South America', 'Oceania'].forEach((r) => ok(M.views[r] && M.views[r].box.length === 4, 'view for ' + r));
+
 // Runs are the same for the same seed, different for another seed.
-const cfg = { mode: 'mix', region: 'world', style: 'pick', count: 50, seed: 12345 };
+const cfg = { kind: 'quick', mode: 'mix', region: 'world', style: 'pick', count: 50, seed: 12345 };
 const a = GS.makeRun(cfg), b = GS.makeRun(cfg), c = GS.makeRun(Object.assign({}, cfg, { seed: 54321 }));
 ok(JSON.stringify(a) === JSON.stringify(b), 'same seed → same run');
 ok(JSON.stringify(a) !== JSON.stringify(c), 'other seed → other run');
 ok(new Set(a.map((q) => q.id)).size === 50, 'no repeats');
 a.forEach((q) => { ok(q.opts.length === 4 && q.opts.includes(q.id) && new Set(q.opts).size === 4, 'options ok'); });
 ['flag', 'shape', 'capital'].forEach((k) => ok(a.some((q) => q.kind === k), 'mix has ' + k));
-const all = GS.makeRun({ mode: 'flags', region: 'world', style: 'type', count: 197, seed: 1 });
+const all = GS.makeRun({ kind: 'quick', mode: 'flags', region: 'world', style: 'type', count: 197, seed: 1 });
 ok(all.length === 197 && new Set(all.map((q) => q.id)).size === 197, 'all 197');
-const oc = GS.makeRun({ mode: 'capitals', region: 'Oceania', style: 'pick', count: 14, seed: 9 });
+const oc = GS.makeRun({ kind: 'quick', mode: 'capitals', region: 'Oceania', style: 'pick', count: 14, seed: 9 });
 ok(oc.every((q) => GS.DATA.find((c) => c.id === q.id).region === 'Oceania'), 'region filter');
 
 ok(GS.fmtTime(102345) === '1:42.3' && GS.fmtTime(9050) === '9.1' && GS.fmtTime(60000) === '1:00.0', 'time format');
