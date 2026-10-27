@@ -15,10 +15,17 @@ function h(tag, props, ...kids) {
 }
 const root = document.getElementById('root');
 let cleanup = []; // things to undo when the screen changes (key listeners, timers)
+// A screen that's redrawn in place (e.g. setup after tapping an option) keeps its scroll position; a new screen
+// starts at the top. Screens that redraw in place mark their top element with data-screen.
+let lastScreen = null;
 function mount(...nodes) {
   cleanup.forEach((f) => { try { f(); } catch (e) { /* ignore */ } }); cleanup = [];
   document.body.classList.remove('fullscreen');
-  root.replaceChildren(...nodes.filter(Boolean)); window.scrollTo(0, 0);
+  const list = nodes.filter(Boolean), key = list[0] && list[0].getAttribute && list[0].getAttribute('data-screen');
+  const same = key && key === lastScreen, y = window.scrollY;
+  root.replaceChildren(...list);
+  window.scrollTo(0, same ? y : 0);
+  lastScreen = key || null;
 }
 let toastTimer;
 function toast(msg) {
@@ -167,7 +174,7 @@ function setup() {
   const cfgNow = () => st.kind === 'board'
     ? { kind: 'board', games: st.games.slice(), region: st.region, seed: newSeed() }
     : { kind: 'quick', mode: st.mode, region: st.region, count: st.count, style: st.style, seed: newSeed() };
-  mount(h('div', { class: 'app' },
+  mount(h('div', { class: 'app', 'data-screen': 'setup' },
     topbar('New run', home),
     h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Style'),
       seg([{ id: 'board', label: 'Full board', em: '🧩', sub: 'All at once, like JetPunk & Seterra' }, { id: 'quick', label: 'Quick fire', em: '⚡', sub: 'One question at a time' }], st.kind, set('kind'), 2)),
@@ -210,7 +217,7 @@ function codeEntry() {
 function bests() {
   const b = store.get('gs_best_v2', {});
   const rows = Object.entries(b).sort((x, y) => x[1].label.localeCompare(y[1].label));
-  mount(h('div', { class: 'app' }, topbar('Best times', home),
+  mount(h('div', { class: 'app', 'data-screen': 'bests' }, topbar('Best times', home),
     rows.length ? h('ul', { class: 'list board' }, rows.map(([k, v]) =>
       h('li', null, h('div', { class: 'q' }, v.label, h('small', null, v.correct + '/' + v.total + ' right' + (v.name ? ' · ' + v.name : ''))), h('div', { class: 't' }, fmtTime(v.time))))) :
       h('p', { class: 'muted center' }, 'No runs yet. Your best for each kind of run shows up here.'),

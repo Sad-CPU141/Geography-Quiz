@@ -108,12 +108,28 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     // 1. Flags board, whole world: 5 right, switch tiles, then give up.
     await setupBoard(page, ['Flags'], 'World');
     await page.screenshot({ path: path.join(outDir, label + '-02-setup.png'), fullPage: true }); await noSideScroll(page, label + ' setup');
+    // Tapping an option low on the setup page keeps you where you are (it used to jump to the top).
+    if (label === 'phone') {
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      const y0 = await page.evaluate(() => window.scrollY);
+      await page.click('.opt:has-text("Pass the phone")'); await page.click('.opt:has-text("Just me")');
+      const y1 = await page.evaluate(() => window.scrollY);
+      ok(y0 > 300 && Math.abs(y1 - y0) < 80, label + ': setup keeps its scroll position (' + y0 + ' → ' + y1 + ')');
+    }
     await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")');
     await page.waitForSelector('.tile.active');
     ok((await page.$$('.tile')).length === 196, label + ': 196 flag tiles');
     for (let i = 0; i < 4; i++) await typeActive(page, 'flag');
     const tiles = await page.$$('.tile:not(.done)');
     await tiles[30].click();
+    if (label === 'phone') {
+      const yb = await page.evaluate(() => window.scrollY);
+      const far = (await page.$$('.tile:not(.done)'))[60]; await far.scrollIntoViewIfNeeded(); const ya = await page.evaluate(() => window.scrollY);
+      await page.evaluate(() => document.activeElement.blur()); await far.click(); await page.waitForTimeout(400);
+      const yc = await page.evaluate(() => window.scrollY);
+      ok(ya > 1000 && Math.abs(yc - ya) < 200, label + ': tapping a flag far down doesn\'t jump to the top (' + ya + ' → ' + yc + ')');
+      void yb; await tiles[30].click();
+    }
     ok(await tiles[30].evaluate((t) => t.classList.contains('active')), label + ': tapping a tile selects it');
     await typeActive(page, 'flag');
     ok((await page.$$('.tile.done')).length === 5, label + ': 5 flags done');

@@ -51,7 +51,7 @@ function gridGame(api) {
     preview.classList.toggle('name', game === 'capitals' || game === 'revcap');
     input.value = ''; help.clear();
     t.scrollIntoView({ block: 'nearest', behavior: 'auto' });
-    if (focus) input.focus({ preventScroll: true });
+    if (focus) keepFocus(input, t);
   }
   // The next tile that isn't found yet, going forwards (d = 1) or backwards (d = -1) and wrapping round.
   function nextOpen(from, d) {
@@ -95,6 +95,17 @@ function gridGame(api) {
       window.scrollTo(0, 0);
     },
   };
+}
+
+/* Focus the answer box without the page jumping. Some phone browsers (iOS Safari especially) scroll to the top
+   when an input inside a sticky header gets focus, so: don't refocus if it already has focus, and if the page
+   jumped anyway, put it back where it was (also once more after the keyboard has finished opening). */
+function keepFocus(input, tile) {
+  if (document.activeElement === input) return;
+  const y = window.scrollY;
+  input.focus({ preventScroll: true });
+  const restore = () => { if (window.scrollY < y - 40) { window.scrollTo(0, y); if (tile) tile.scrollIntoView({ block: 'nearest' }); } };
+  requestAnimationFrame(restore); setTimeout(restore, 350);
 }
 
 /* Spelling help ("Did you mean …?"), used by the boards and Quick fire. Only on when the player turned it on.
