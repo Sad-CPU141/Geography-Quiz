@@ -7,6 +7,9 @@
    A tap on the sea just next to a dot or box counts for it. */
 function mapGame(api) {
   const { sec, res } = api;
+  // Three ways to play the map: 'map' (tap the named country), 'flagmap' (tap the country of the flag shown),
+  // 'mapname' (a country lights up in gold; type its name).
+  const mode = sec.game, naming = mode === 'mapname';
   const M = window.GS_MAP, view = M.views[S.session.cfg.region], m = M[view.map];
   const ids = sec.ids, playable = new Set(ids);
   const queue = ids.slice();
@@ -53,6 +56,10 @@ function mapGame(api) {
       h('button', { class: 'iconbtn', 'aria-label': 'Zoom out', onclick: () => zoomBy(1 / 0.6) }, '−'),
       h('button', { class: 'iconbtn', 'aria-label': 'Show the whole map', onclick: () => fit(!fitAll) }, '⤢')));
   const target = h('b', { class: 'target' });
+  // Map: name it — an input instead of the country's name.
+  const nameInput = h('input', { class: 'input', type: 'text', autocomplete: 'off', autocorrect: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'go', placeholder: 'Type the gold country…', 'aria-label': 'Name the country lit up in gold' });
+  const nameBox = h('div', { class: 'namebox' }, nameInput);
+  const sugEl = h('div', { class: 'suggest', 'aria-live': 'polite', hidden: true });
   const hint = h('div', { class: 'maphint', 'aria-live': 'polite' });
   const foundEl = h('span', { class: 'found num' });
   const barOk = h('i', { class: 'b-ok' }), barMiss = h('i', { class: 'b-miss' });
@@ -62,10 +69,11 @@ function mapGame(api) {
   const head = h('div', { class: 'bhead' },
     h('div', { class: 'hud' },
       h('button', { class: 'iconbtn', 'aria-label': 'Stop the run', onclick: api.quit }, '✕'),
-      h('div', { class: 'secname' }, h('b', null, '🌍 ' + api.label), api.part ? h('small', null, 'Game ' + api.part) : null),
+      h('div', { class: 'secname' }, h('b', null, gameOf(mode).em + ' ' + api.label), api.part ? h('small', null, 'Game ' + api.part) : null),
       h('div', { class: 'timer num' }, fmtTime(api.R.clock.elapsed())),
       h('button', { class: 'btn ghost giveup', onclick: () => { if (!revealed && !ended) api.giveUp(); } }, 'Give up')),
-    h('div', { class: 'prompt' }, h('span', { class: 'findlbl' }, h('span', { class: 'eyebrow' }, 'Find'), foundEl), target, skipBtn),
+    h('div', { class: 'prompt' }, h('span', { class: 'findlbl' }, h('span', { class: 'eyebrow' }, naming ? 'Name it' : 'Find'), foundEl), naming ? nameBox : target, skipBtn),
+    naming ? sugEl : null,
     h('div', { class: 'mapbar', 'aria-hidden': 'true' }, barOk, barMiss),
     hint);
   mount(h('div', { class: 'app map-run' }, head, wrap, footer));
@@ -182,13 +190,17 @@ function mapGame(api) {
   }
   const pop = (id) => (els[id] || []).forEach((el) => { el.classList.remove('pop'); void el.getBoundingClientRect(); el.classList.add('pop'); });
   function ask() {
-    if (!queue.length) { ended = true; target.textContent = 'Done!'; skipBtn.disabled = true; hint.textContent = ''; api.done(); return; }
-    target.textContent = BY_ID[queue[0]].name;
+    if (!queue.length) { ended = true; target.textContent = 'Done!'; nameInput.disabled = true; skipBtn.disabled = true; hint.textContent = ''; api.done(); return; }
+    const cur = queue[0];
+    if (mode === 'flagmap') target.replaceChildren(h('img', { class: 'promptflag', src: BY_ID[cur].flag, alt: 'The flag to find', width: Math.round(BY_ID[cur].ratio * 60), height: 60 }));
+    else target.textContent = naming ? '' : BY_ID[cur].name;
+    if (naming) { setState(cur, 'focus'); showTarget(cur); nameInput.value = ''; help.clear(); nameInput.focus({ preventScroll: true }); }
     const t = tries[queue[0]] || 0;
     hint.textContent = t ? '✗'.repeat(t) + ' ' + (MAP_TRIES - t) + ' tries left' : '';
   }
   function skip() {
     if (revealed || must || ended || queue.length < 2) return;
+    if (naming) setState(queue[0], null);
     queue.push(queue.shift()); ask();
   }
   // Which country a tap means: the country (or dot / box) under the finger; on the sea, the nearest dot or box
@@ -219,7 +231,7 @@ function mapGame(api) {
   function tap(x, y) {
     const id = pickAt(x, y);
     if (revealed) { if (id) hint.textContent = BY_ID[id] ? BY_ID[id].name : ''; return; }
-    if (ended || !id || !playable.has(id)) return;
+    if (naming || ended || !id || !playable.has(id)) return;
     const cur = queue[0];
     if (must) {
       // After three misses you have to tap the right one (in red) before the next country.
@@ -254,6 +266,30 @@ function mapGame(api) {
     if (!seen) fit(true);
   }
   requestAnimationFrame(() => fit(false));
+  // Map: name it.
+  const help = spellingHelp(nameInput, sugEl, 'country', () => queue[0], () => named());
+  function named() {
+    const cur = queue[0];
+    res.found.push(cur); setState(cur, 'g0'); pop(cur);
+    const r = (els[cur][0]).getBoundingClientRect(); tapName(r.left + r.width / 2, r.top + r.height / 2, BY_ID[cur].name, true);
+    queue.shift(); count(); ask();
+  }
+  nameInput.addEventListener('input', () => { if (!naming || ended || revealed) return; if (isRight(queue[0], 'country', nameInput.value)) named(); else help.update(); });
+  nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (!ended && !revealed) { if (isRight(queue[0], 'country', nameInput.value)) named(); else help.enter(); } } });
+  // Bring the gold country into view: zoom in on it if it's small or off screen.
+  function showTarget(id) {
+    if (!base) return requestAnimationFrame(() => showTarget(id));
+    const el = els[id][0], bb = el.getBBox(), s = size();
+    const onScreen = el.getBoundingClientRect(), w = wrap.getBoundingClientRect();
+    const visible = onScreen.right > w.left + 20 && onScreen.left < w.right - 20 && onScreen.bottom > w.top + 20 && onScreen.top < w.bottom - 20;
+    const big = Math.max(onScreen.width, onScreen.height) >= 24;
+    if (visible && big) return;
+    // A view about 6× the country's size (but not smaller than a fifth of the region), centred on it.
+    const ar = s.w / s.h, cx = bb.x + bb.width / 2, cy = bb.y + bb.height / 2;
+    let vw = Math.max(bb.width * 6, bb.height * 6 * ar, base.w / 5);
+    vw = Math.min(vw, base.w);
+    vb = { x: cx - vw / 2, y: cy - vw / ar / 2, w: vw, h: vw / ar }; apply();
+  }
   count(); ask();
   if (portrait() && !store.get('gs_tip_sideways', false)) {
     hint.textContent = 'Tip: turn your phone sideways for a bigger map. Pinch to zoom.';
@@ -263,7 +299,7 @@ function mapGame(api) {
   return {
     completed() { head.classList.add('all-done'); },
     reveal(btn) {
-      revealed = true; skipBtn.disabled = true; must = null;
+      revealed = true; skipBtn.disabled = true; must = null; nameInput.disabled = true; help.clear(); if (naming && queue[0]) setState(queue[0], null);
       ids.forEach((id) => { if (!res.found.includes(id)) setState(id, 'miss'); });
       target.textContent = (ids.length - res.found.length) + ' missed (in red)';
       hint.textContent = 'Tap a country to see its name.';

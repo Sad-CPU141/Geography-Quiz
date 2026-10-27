@@ -301,3 +301,45 @@ body.fullscreen{overflow:hidden}
 .mapbar{height:5px;border-radius:5px;background:var(--panel2);overflow:hidden;display:flex}
 .mapbar i{display:block;height:100%;transition:width .25s}
 .mapbar .b-ok{background:var(--ok)}.mapbar .b-miss{background:var(--danger)}
+/* map variants */
+.map [data-st="focus"]{fill:var(--gold);animation:focuspulse 1.2s ease-in-out infinite}
+.map .dot[data-st="focus"]{fill:var(--gold);stroke:#fff;stroke-width:2}
+.map .zone[data-st="focus"]{stroke:var(--gold);stroke-width:2.5;fill:rgba(255,200,61,.2)}
+@keyframes focuspulse{50%{fill:#fff0b0}}
+.namebox{flex:1;min-width:0}
+.namebox .input{min-height:46px;font-size:18px}
+.promptflag{height:44px;width:auto;display:block;filter:drop-shadow(0 0 1px rgba(255,255,255,.6))}
+.prompt .target:has(.promptflag){overflow:visible}
+/* Borders */
+.bcard{background:var(--panel);border:2px solid var(--line);border-radius:20px;padding:16px;display:flex;flex-direction:column;gap:14px}
+.bcard-top{display:flex;align-items:center;gap:14px}
+.bcard-top .big{text-align:start;font-size:clamp(30px,9vw,52px)}
+.bshape{width:110px;height:82px;flex:none}
+.bshape path{fill:var(--land);stroke:var(--sky);stroke-width:10;stroke-linejoin:round}
+.slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
+.slot{padding:10px;border-radius:12px;border:2px dashed var(--line);text-align:center;font-family:var(--cond);font-weight:800;font-size:17px;color:var(--dim)}
+.slot.got{border-style:solid;border-color:var(--ok);background:color-mix(in srgb,var(--ok) 18%,var(--panel));color:#bff3d5}
+/* Bigger country */
+.duel{display:flex;flex-direction:column;gap:10px}
+.duel-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.duel-pick{position:relative;display:flex;flex-direction:column;align-items:center;gap:8px;padding:14px 10px;border-radius:18px;border:2px solid var(--line);background:var(--panel);box-shadow:0 4px 0 #0a0818;min-height:180px;justify-content:center}
+.duel-pick .pic{width:100%;max-width:180px}
+.duel-pick b{font-family:var(--cond);font-weight:800;font-size:22px;line-height:1.1;text-align:center}
+.duel-pick .area{font-size:14px;color:var(--text);min-height:1.2em}
+.duel-pick .key{position:absolute;top:6px;inset-inline-start:10px;font-size:12px;color:var(--dim)}
+.duel-pick.right{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 22%,var(--panel))}
+.duel-pick.wrong{border-color:var(--danger);background:color-mix(in srgb,var(--danger) 22%,var(--panel))}
+.duel-pick.other{opacity:.8}
+.more-toggle{display:flex;justify-content:space-between;align-items:center;width:100%;padding:10px 12px;border-radius:14px;border:2px dashed var(--line);background:none;font-family:var(--cond);font-weight:800;font-size:17px;color:var(--text)}
+.more-toggle small{font-family:var(--body);font-size:13px;color:var(--muted);font-weight:600}
+/* Daily run card */
+.card.daily{border-color:var(--gold);background:linear-gradient(165deg,color-mix(in srgb,var(--gold) 18%,var(--panel)),var(--panel))}
+.daily-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.daily-what{font-family:var(--cond);font-weight:800;font-size:20px;line-height:1.2}
+/* long game names in the header shouldn't run into the clock */
+.bhead .secname{flex:0 1 auto;min-width:0;max-width:38%}
+.bhead .secname b{overflow:hidden;text-overflow:ellipsis}
+.bhead .timer{flex:1 0 auto}
+/* Map: name it — make the gold country unmissable */
+.map .cty[data-st="focus"]{stroke:#fff;stroke-width:2.2}
+@keyframes focuspulse{0%,100%{fill:var(--gold)}50%{fill:#ff8a3d}}

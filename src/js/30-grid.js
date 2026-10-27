@@ -6,6 +6,7 @@ function tilePic(game, id) {
   // the same-size box.
   if (game === 'flags') return h('span', { class: 'pic flagbox' }, h('img', { src: BY_ID[id].flag, alt: 'A flag', loading: 'lazy', width: Math.round(BY_ID[id].ratio * 100), height: 100 }));
   if (game === 'shapes') return shapeSvg(id, 'pic');
+  if (game === 'revcap') return h('span', { class: 'pic name' }, BY_ID[id].capital);
   return h('span', { class: 'pic name' }, BY_ID[id].name);
 }
 function gridGame(api) {
@@ -20,10 +21,10 @@ function gridGame(api) {
   const preview = h('div', { class: 'preview' });
   const sugEl = h('div', { class: 'suggest', 'aria-live': 'polite', hidden: true });
   const help = spellingHelp(input, sugEl, kind, () => ids[active], () => accept());
-  const tiles = ids.map((id, i) => h('button', { class: 'tile', 'data-id': id, 'aria-label': kind === 'capital' ? 'Capital of ' + BY_ID[id].name : 'Tile ' + (i + 1),
+  const tiles = ids.map((id, i) => h('button', { class: 'tile', 'data-id': id, 'aria-label': kind === 'capital' ? 'Capital of ' + BY_ID[id].name : game === 'revcap' ? 'Country with the capital ' + BY_ID[id].capital : 'Tile ' + (i + 1),
     onmousedown: (e) => e.preventDefault(), onclick: () => { if (!revealed) select(i, true); } },
   tilePic(game, id), h('span', { class: 'lbl' })));
-  const grid = h('div', { class: 'tiles t-' + game }, tiles);
+  const grid = h('div', { class: 'tiles t-' + (game === 'revcap' ? 'capitals' : game) }, tiles);
   const footer = h('div', { class: 'reveal-bar', hidden: true });
   const head = h('div', { class: 'bhead' },
     h('div', { class: 'hud' },
@@ -37,7 +38,7 @@ function gridGame(api) {
       input,
       h('button', { class: 'iconbtn', 'aria-label': 'Next', onmousedown: (e) => e.preventDefault(), onclick: () => step(1) }, '▶')),
     sugEl,
-    h('div', { class: 'progress' }, foundEl, h('span', { class: 'small muted' }, 'Tap any ' + (game === 'capitals' ? 'country' : game === 'flags' ? 'flag' : 'outline') + ' to switch')));
+    h('div', { class: 'progress' }, foundEl, h('span', { class: 'small muted' }, 'Tap any ' + ({ capitals: 'country', flags: 'flag', shapes: 'outline', revcap: 'capital' }[game] || 'tile') + ' to switch')));
   mount(h('div', { class: 'app wide grid-run' }, head, grid, footer));
 
   function count() { foundEl.textContent = found.size + ' / ' + ids.length + ' found'; }
@@ -47,7 +48,7 @@ function gridGame(api) {
     const t = tiles[i];
     t.classList.add('active');
     preview.replaceChildren(tilePic(game, ids[i]));
-    preview.classList.toggle('name', game === 'capitals');
+    preview.classList.toggle('name', game === 'capitals' || game === 'revcap');
     input.value = ''; help.clear();
     t.scrollIntoView({ block: 'nearest', behavior: 'auto' });
     if (focus) input.focus({ preventScroll: true });
@@ -100,13 +101,13 @@ function gridGame(api) {
    Suggestions come from every country (or capital) in the world, not just the right answer. Tapping one (or
    Enter when there's only one) tries it: right → accepted; wrong → it shakes like any wrong answer. */
 function shake(input) { input.classList.remove('shake'); void input.offsetWidth; input.classList.add('shake'); }
-function spellingHelp(input, el, kindOf, currentId, onRight) {
+function spellingHelp(input, el, kindOf, currentId, onRight, matcher) {
   let list = [];
   const kind0 = () => (typeof kindOf === 'function' ? kindOf() : kindOf);
   const on = () => !!(S.session && S.session.help);
   const clear = () => { list = []; el.hidden = true; el.replaceChildren(); };
   const tryText = (text) => {
-    if (isRight(currentId(), kind0(), text)) { input.value = text; onRight(); }
+    if (matcher ? matcher(text) : isRight(currentId(), kind0(), text)) { input.value = text; onRight(); }
     else { input.value = text; clear(); shake(input); }
     input.focus({ preventScroll: true });
   };

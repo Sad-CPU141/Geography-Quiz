@@ -21,24 +21,29 @@ const BASE = 'http://localhost:' + server.address().port + '/Geography-Quiz/';
 let fails = 0; const ok = (c, m) => { if (!c) { fails++; console.log('FAIL: ' + m); } else console.log('ok  ' + m); };
 const SIZES = [['phone', 360, 780], ['laptop', 1366, 768], ['tv', 1920, 1080]];
 const only = process.argv[2];
+// Game labels as shown in setup ("Map: name it" before "Map" so has-text matches the right row).
+const ALL_GAMES = ['Flags', 'Map', 'Capitals', 'Shapes', 'Reverse Capitals', 'Map: name it', 'Borders', 'Flag → Map', 'Bigger country'];
 
 async function noSideScroll(page, label) {
   const w = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
   ok(w[0] <= w[1], label + ': no sideways scroll (' + w[0] + ' ≤ ' + w[1] + ')');
 }
-async function setupBoard(page, games, region) {
+const GAME_ID = { 'Flags': 'flags', 'Map': 'map', 'Capitals': 'capitals', 'Shapes': 'shapes', 'Reverse Capitals': 'revcap', 'Map: name it': 'mapname', 'Borders': 'borders', 'Flag → Map': 'flagmap', 'Bigger country': 'duel' };
+async function setupBoard(page, labels, region) {
+  const games = labels.map((l) => GAME_ID[l]);
   await page.click('text=New run'); await page.waitForSelector('.seg');
   await page.click('.opt:has-text("Full board")');
-  // Turn games on/off to match `games`.
-  for (const G of ['Flags', 'Map', 'Capitals', 'Shapes', 'Flags', 'Map', 'Capitals', 'Shapes']) {
-    const isOn = !!(await page.$('.game-row.on .game-pick:has-text("' + G + '")'));
-    if (games.includes(G) !== isOn && !(isOn && !games.includes(G) && (await page.$$('.game-row.on')).length === 1)) await page.click('.game-pick:has-text("' + G + '")');
-  }
-  for (const g of games) { const isOn = await page.$('.game-row.on .game-pick:has-text("' + g + '")'); if (!isOn) await page.click('.game-pick:has-text("' + g + '")'); }
+  const tog = await page.$('.more-toggle[aria-expanded="false"]'); if (tog) await tog.click();
+  // Turn on what's wanted, then turn off the rest.
+  for (const g of games) if (!(await page.$('.game-row.on[data-game="' + g + '"]'))) await page.click('.game-pick[data-game="' + g + '"]');
+  for (const g of Object.values(GAME_ID)) if (!games.includes(g) && (await page.$('.game-row.on[data-game="' + g + '"]'))) await page.click('.game-pick[data-game="' + g + '"]');
   // Order: move each game up into its place with the arrows.
   for (let j = 0; j < games.length; j++) {
-    const on = await page.$$eval('.game-row.on .game-txt b', (bs) => bs.map((b) => b.textContent.split(' ').slice(1).join(' ')));
-    for (let i = on.indexOf(games[j]); i > j; i--) await page.click('[aria-label="Move ' + games[j] + ' up"]');
+    const on = await page.$$eval('.game-row.on', (rs) => rs.map((r) => r.dataset.game));
+    // Rows on screen are main-then-more; the run order is in the numbers.
+    const order = await page.$$eval('.game-row.on', (rs) => rs.map((r) => [r.dataset.game, +r.querySelector('.game-num').textContent]).sort((x, y) => x[1] - y[1]).map((x) => x[0]));
+    void on;
+    for (let i = order.indexOf(games[j]); i > j; i--) await page.click('.game-row[data-game="' + games[j] + '"] [aria-label$=" up"]');
   }
   await page.click('.opt:has-text("' + region + '")');
   await page.click('.opt:has-text("Just me")');
@@ -132,8 +137,8 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await page.click('button:has-text("Home")');
     await setupBoard(page, ['Map', 'Capitals'], 'Europe');
     await page.click('.card:has-text("Spelling help") .opt:has-text("On")');
-    const order = await page.$$eval('.game-row.on .game-txt b', (bs) => bs.map((x) => x.textContent));
-    ok(/Map/.test(order[0]) && /Capitals/.test(order[1]), label + ': order Map → Capitals (' + order.join(', ') + ')');
+    const order = await page.$$eval('.game-row.on', (rs) => rs.map((r) => [r.dataset.game, +r.querySelector('.game-num').textContent]).sort((x, y) => x[1] - y[1]).map((x) => x[0]));
+    ok(order.join() === 'map,capitals', label + ': order Map → Capitals (' + order.join(', ') + ')');
     await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")');
     await page.waitForSelector('.map .cty');
     await page.waitForTimeout(300);
@@ -197,6 +202,86 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     ok((await page.textContent('.stat b')).trim() === '10/10', label + ': quick fire 10/10');
     ok(errors.length === 0, label + ': no page errors ' + JSON.stringify(errors));
     await ctx.close();
+  }
+
+  // The 5 "More games" in one combined run (South America, phone): Reverse Capitals → Borders → Bigger country
+  // → Flag → Map → Map: name it. Everything answered right, so it should end 100%.
+  if (!only || only === 'more') {
+    const ctx = await b.newContext({ viewport: { width: 360, height: 780 }, deviceScaleFactor: 2 });
+    const page = await ctx.newPage();
+    const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(BASE);
+    await setupBoard(page, ['Reverse Capitals', 'Borders', 'Bigger country', 'Flag → Map', 'Map: name it'], 'S. America');
+    await page.screenshot({ path: path.join(outDir, 'more-setup.png'), fullPage: true });
+    const order = await page.$$eval('.game-row.on', (rs) => rs.map((r) => [r.dataset.game, +r.querySelector('.game-num').textContent]).sort((x, y) => x[1] - y[1]).map((x) => x[0]));
+    ok(order.join() === 'revcap,borders,duel,flagmap,mapname', 'more games picked in order: ' + order.join(', '));
+    await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")');
+    // Reverse Capitals
+    await page.waitForSelector('.tile.active');
+    await page.screenshot({ path: path.join(outDir, 'more-1-revcap.png') });
+    for (let i = 0; i < 12; i++) { if (!(await page.$('.tile.active'))) break; await typeActive(page, 'flag'); }
+    // Borders
+    await page.waitForSelector('.bcard .big');
+    await page.screenshot({ path: path.join(outDir, 'more-2-borders.png') });
+    for (let k = 0; k < 60 && await page.$('.bcard .big'); k++) {
+      const left = await page.evaluate(() => { const n = document.querySelector('.bcard .big').textContent; const c = window.GS.DATA.find((x) => x.name === n); const got = [...document.querySelectorAll('.slot.got')].map((e) => e.textContent); return c.nb.map((id) => window.GS.DATA.find((x) => x.id === id).name).filter((nm) => !got.includes(nm)); });
+      if (!left.length) break;
+      for (const ch of left[0]) { await page.keyboard.type(ch); if (await page.$eval('.typebar input', (el) => el.value === '' || el.disabled)) break; }
+      if (await page.$('.duel')) break;
+    }
+    // Bigger country
+    await page.waitForSelector('.duel-pick');
+    await page.screenshot({ path: path.join(outDir, 'more-3-duel.png') });
+    for (let k = 0; k < 6; k++) {
+      await page.waitForSelector('.duel-pick:not(.right):not(.wrong)', { timeout: 4000 }).catch(() => {});
+      if (!(await page.$('.duel-pick'))) break;
+      const win = await page.evaluate(() => { const ids = [...document.querySelectorAll('.duel-pick')].map((b) => b.dataset.id); return window.GS.duelWinner(ids.join('|')); });
+      await page.click('.duel-pick[data-id="' + win + '"]');
+      await page.waitForTimeout(800);
+    }
+    // Flag → Map
+    await page.waitForSelector('.promptflag');
+    await page.screenshot({ path: path.join(outDir, 'more-4-flagmap.png') });
+    for (let k = 0; k < 14 && await page.$('.promptflag'); k++) {
+      const id = await page.evaluate(() => { const src = document.querySelector('.promptflag').getAttribute('src'); return window.GS.DATA.find((c) => src.endsWith(c.flag)).id; });
+      await resetView(page, 'start'); await tapCountry(page, id); await page.waitForTimeout(60);
+    }
+    // Map: name it
+    await page.waitForSelector('.namebox input');
+    await page.waitForTimeout(200);
+    await page.screenshot({ path: path.join(outDir, 'more-5-mapname.png') });
+    for (let k = 0; k < 14 && await page.$('.namebox input:not([disabled])'); k++) {
+      const name = await page.evaluate(() => { const el = document.querySelector('.map path[data-st="focus"]'); return el && window.GS.DATA.find((c) => c.id === el.dataset.id).name; });
+      if (!name) break;
+      for (const ch of name) { await page.keyboard.type(ch); if (await page.$eval('.namebox input', (el) => el.value === '' || el.disabled)) break; }
+      await page.waitForTimeout(40);
+    }
+    await page.waitForSelector('.result-time', { timeout: 6000 });
+    const st = (await page.textContent('.stat b')).trim(), [got, tot] = st.split('/').map(Number);
+    ok(got === tot && tot > 50, 'all five more games answered right: ' + st);
+    await page.screenshot({ path: path.join(outDir, 'more-6-result.png'), fullPage: true });
+    // Its challenge code is a long one and decodes to the same run.
+    const code = (await page.textContent('.code')).trim();
+    ok(code.replace(/-/g, '').length >= 10 && await page.evaluate((c) => JSON.stringify(window.GS.decodeCode(c).games), code) === JSON.stringify(['revcap', 'borders', 'duel', 'flagmap', 'mapname']), 'long challenge code ' + code);
+    // Spelling help + a wrong guess in Borders on a fresh run: Enter on a wrong name shakes, nothing counted.
+    ok(errors.length === 0, 'more games: no page errors ' + JSON.stringify(errors));
+
+    // Daily run from the home page: play it (give up straight away), the score is kept, a replay doesn't change it.
+    await page.click('button:has-text("Home")');
+    await page.waitForSelector('.card.daily');
+    await page.screenshot({ path: path.join(outDir, 'daily-home.png') });
+    await page.click('.card.daily button:has-text("Play today")'); await page.click('button:has-text("Go")');
+    await page.waitForSelector('button:has-text("Give up")');
+    await page.click('button:has-text("Give up")'); await page.click('button:has-text("End the whole run")'); await page.click('button:has-text("See results")');
+    await page.waitForSelector('.result-time');
+    ok((await page.textContent('body')).includes('this is your score for today'), 'daily: first go counts');
+    await page.click('button:has-text("Home")');
+    await page.waitForSelector('.card.daily');
+    ok(/Your score today: 0\//.test(await page.textContent('.card.daily')), 'daily: home shows today\'s score');
+    await page.screenshot({ path: path.join(outDir, 'daily-done.png') });
+    ok(errors.length === 0, 'daily: no page errors ' + JSON.stringify(errors));
+    await ctx.close();
+    if (only === 'more') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }
   }
 
   // Islands: Oceania and the Caribbean on a phone, tapping each island country's ring (a little off-centre,

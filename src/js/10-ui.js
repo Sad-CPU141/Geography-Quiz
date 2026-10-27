@@ -77,6 +77,7 @@ function home() {
       h('div', { class: 'row' },
         h('button', { class: 'btn ghost small', onclick: () => { S.challenge = null; home(); } }, 'Not now'),
         h('button', { class: 'btn primary small', onclick: () => { startSession(c.cfg, [S.myName || 'You'], c); } }, 'Take it on'))) : null,
+    dailyCard(),
     h('div', { class: 'stack' },
       h('button', { class: 'btn primary', onclick: setup }, '▶ New run'),
       h('button', { class: 'btn ghost', onclick: codeEntry }, '🔑 Enter a challenge code'),
@@ -84,6 +85,27 @@ function home() {
     h('div', { class: 'foot' }, h('a', { href: '../' }, '← Game Night'), ' · ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); credits(); } }, 'Credits'), ' · ' + DATA.length + ' countries'),
   ));
   S.badLink = false;
+}
+
+// The Daily run: same for everyone today. Your first go counts; you can replay, but the score stays.
+function dailyCard() {
+  const day = todayNum(), cfg = dailyCfg(day), mine = store.get('gs_daily_v1', {})[day];
+  let streak = 0; const all = store.get('gs_daily_v1', {});
+  for (let d = day; all[d]; d--) streak++;
+  return h('div', { class: 'card daily' },
+    h('div', { class: 'daily-top' }, h('p', { class: 'eyebrow' }, '📅 Daily run · ' + dayLabel(day)), streak > 1 ? h('span', { class: 'badge' }, '🔥 ' + streak + ' days') : null),
+    h('div', { class: 'daily-what' }, regionOf(cfg.region).label + ': ' + cfg.games.map((g) => gameOf(g).em + ' ' + gameOf(g).label).join(' → ')),
+    mine ? h('p', null, 'Your score today: ', h('b', null, mine.correct + '/' + mine.total + ' in ' + fmtTime(mine.time))) : h('p', { class: 'small muted' }, 'Same run for everyone today. New one at midnight UTC.'),
+    h('div', { class: 'row' },
+      mine ? h('button', { class: 'btn ghost small', onclick: () => shareDaily(day, mine) }, '📤 Share') : null,
+      h('button', { class: 'btn ' + (mine ? 'ghost' : 'gold') + ' small', onclick: () => startSession(cfg, [S.myName || 'You'], null, day) }, mine ? '↻ Play again' : '▶ Play today\'s run')));
+}
+async function shareDaily(day, mine) {
+  const cfg = dailyCfg(day);
+  const url = location.origin + location.pathname + '?' + new URLSearchParams({ c: encodeCode(cfg).replace(/-/g, ''), n: S.myName || 'A friend', t: String(mine.time), s: String(mine.correct) }).toString();
+  const text = 'Geography Speedrun · Daily ' + dayLabel(day) + '\n' + regionOf(cfg.region).label + ': ' + cfg.games.map((g) => gameOf(g).label).join(' + ') + '\n' + mine.correct + '/' + mine.total + ' in ' + fmtTime(mine.time);
+  if (navigator.share) { try { await navigator.share({ title: 'Geography Speedrun daily', text, url }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
+  try { await navigator.clipboard.writeText(text + '\n' + url); toast('Daily result copied'); } catch (e) { prompt('Copy and send:', text + '\n' + url); }
 }
 
 function nameField() {
@@ -108,21 +130,28 @@ function setup() {
 
   // Board: which games, in which order.
   function gamesCard() {
-    const order = st.games.concat(GAMES.map((g) => g.id).filter((g) => !st.games.includes(g)));
     const move = (g, d) => { const i = st.games.indexOf(g), j = i + d; if (j < 0 || j >= st.games.length) return; [st.games[i], st.games[j]] = [st.games[j], st.games[i]]; save(); setup(); };
     const toggle = (g) => { if (st.games.includes(g)) { if (st.games.length === 1) return toast('Pick at least one game'); st.games = st.games.filter((x) => x !== g); } else st.games.push(g); save(); setup(); };
+    const row = (g) => {
+      const on = st.games.includes(g), i = st.games.indexOf(g), G = gameOf(g);
+      return h('div', { class: 'game-row' + (on ? ' on' : ''), 'data-game': g },
+        h('button', { class: 'game-pick', 'data-game': g, 'aria-pressed': String(on), onclick: () => toggle(g) },
+          h('span', { class: 'game-num' }, on ? String(i + 1) : '+'),
+          h('span', { class: 'game-txt' }, h('b', null, G.em + ' ' + G.label), h('small', null, G.desc))),
+        on && st.games.length > 1 ? h('span', { class: 'game-move' },
+          h('button', { class: 'iconbtn sm', 'aria-label': 'Move ' + G.label + ' up', disabled: i === 0, onclick: () => move(g, -1) }, '↑'),
+          h('button', { class: 'iconbtn sm', 'aria-label': 'Move ' + G.label + ' down', disabled: i === st.games.length - 1, onclick: () => move(g, 1) }, '↓')) : null);
+    };
+    // The 4 main games, then the others in a fold-out so the list stays short.
+    const main = GAMES.filter((g) => !g.more).map((g) => g.id), more = GAMES.filter((g) => g.more).map((g) => g.id);
+    const moreOn = more.filter((g) => st.games.includes(g)).length;
+    const open = st.showMore != null ? st.showMore : moreOn > 0;
     return h('div', { class: 'card' },
       h('p', { class: 'eyebrow' }, 'Games — pick one or more, in the order you want'),
-      h('div', { class: 'games' }, order.map((g) => {
-        const on = st.games.includes(g), i = st.games.indexOf(g), G = gameOf(g);
-        return h('div', { class: 'game-row' + (on ? ' on' : '') },
-          h('button', { class: 'game-pick', 'aria-pressed': String(on), onclick: () => toggle(g) },
-            h('span', { class: 'game-num' }, on ? String(i + 1) : '+'),
-            h('span', { class: 'game-txt' }, h('b', null, G.em + ' ' + G.label), h('small', null, G.desc))),
-          on && st.games.length > 1 ? h('span', { class: 'game-move' },
-            h('button', { class: 'iconbtn sm', 'aria-label': 'Move ' + G.label + ' up', disabled: i === 0, onclick: () => move(g, -1) }, '↑'),
-            h('button', { class: 'iconbtn sm', 'aria-label': 'Move ' + G.label + ' down', disabled: i === st.games.length - 1, onclick: () => move(g, 1) }, '↓')) : null);
-      })),
+      h('div', { class: 'games' }, main.map(row)),
+      h('button', { class: 'more-toggle', 'aria-expanded': String(open), onclick: () => { st.showMore = !open; save(); setup(); } },
+        h('span', null, (open ? '▾ ' : '▸ ') + 'More games'), h('small', null, more.length + ' more' + (moreOn ? ' · ' + moreOn + ' picked' : ''))),
+      open ? h('div', { class: 'games' }, more.map(row)) : null,
       st.games.length > 1 ? h('p', { class: 'small muted' }, 'One clock for the whole run: ' + st.games.map((g) => gameOf(g).label).join(' → ') + '. It ends when you finish (or give up on) the last one.') : null);
   }
   function quickCards() {

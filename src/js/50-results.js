@@ -16,7 +16,7 @@ function missedBoard(sec) {
   const G = gameOf(sec.game);
   const head = h('p', { class: 'eyebrow' }, G.em + ' ' + G.label + ' · ' + sec.found.length + '/' + sec.ids.length + (sec.skipped ? ' (not played)' : sec.gaveUp ? ' (gave up)' : ''));
   // Map: how many were right on the first tap.
-  const first = sec.game === 'map' && sec.found.length ? sec.found.filter((id) => !(sec.tries && sec.tries[id])).length : null;
+  const first = (sec.game === 'map' || sec.game === 'flagmap') && sec.found.length ? sec.found.filter((id) => !(sec.tries && sec.tries[id])).length : null;
   const firstLine = first != null ? h('p', { class: 'small muted' }, '🎯 First tap right: ' + first + '/' + sec.ids.length + ' (' + Math.round(first / sec.ids.length * 100) + '%)') : null;
   if (!sec.missed.length) return h('div', { class: 'stack sm' }, head, firstLine, h('p', { class: 'small' }, h('span', { class: 'badge' }, 'All found 🎯')));
   let body;
@@ -24,6 +24,13 @@ function missedBoard(sec) {
     body = h('div', { class: 'tiles small t-' + sec.game }, sec.missed.map((id) => h('div', { class: 'tile missed' }, tilePic(sec.game, id), h('span', { class: 'lbl' }, BY_ID[id].name))));
   } else if (sec.game === 'capitals') {
     body = h('ul', { class: 'pairs' }, sec.missed.map((id) => h('li', null, h('span', null, BY_ID[id].name), h('b', null, BY_ID[id].capital))));
+  } else if (sec.game === 'revcap') {
+    body = h('ul', { class: 'pairs' }, sec.missed.map((id) => h('li', null, h('span', null, BY_ID[id].capital), h('b', null, BY_ID[id].name))));
+  } else if (sec.game === 'borders') {
+    const by = {}; sec.missed.forEach((key) => { const [c, n] = key.split('>'); (by[c] = by[c] || []).push(BY_ID[n].name); });
+    body = h('ul', { class: 'pairs' }, Object.entries(by).map(([c, ns]) => h('li', null, h('span', null, BY_ID[c].name), h('b', null, ns.join(', ')))));
+  } else if (sec.game === 'duel') {
+    body = h('ul', { class: 'pairs' }, sec.missed.map((key) => { const w = duelWinner(key), l = key.split('|').find((x) => x !== w); return h('li', null, h('span', null, BY_ID[w].name + ' > ' + BY_ID[l].name), h('b', null, BY_ID[w].area.toLocaleString('en-US') + ' km²')); }));
   } else {
     body = h('p', { class: 'namelist' }, sec.missed.map((id) => BY_ID[id].name).join(' · '));
   }
@@ -55,7 +62,9 @@ function result(score) {
       many ? h('p', { class: 'eyebrow' }, score.name) : null,
       h('div', { class: 'result-time' }, fmtTime(score.time)),
       score.best ? h('div', null, h('span', { class: 'badge' }, '★ New best on this device')) : null,
-      se.help ? h('p', { class: 'small muted' }, '💡 With spelling help') : null),
+      se.help ? h('p', { class: 'small muted' }, '💡 With spelling help') : null,
+      se.daily != null ? h('p', { class: 'small muted' }, '📅 Daily run · ' + dayLabel(se.daily) + (score.dailyFirst ? ' · this is your score for today' : ' · replay (your first go counts)')) : null),
+    se.daily != null ? h('button', { class: 'btn gold small', onclick: () => shareDaily(se.daily, store.get('gs_daily_v1', {})[se.daily] || score) }, '📤 Share today\'s result') : null,
     versus(score, se.challenge, se.cfg.kind),
     h('div', { class: 'stats' },
       h('div', { class: 'stat' }, h('b', null, score.correct + '/' + score.total), h('span', null, board ? 'Found' : 'Right')),
@@ -78,7 +87,7 @@ function afterButtons() {
   return h('div', { class: 'stack' },
     h('div', { class: 'row' },
       h('button', { class: 'btn primary small', onclick: () => startSession(Object.assign({}, se.cfg, { seed: newSeed() }), se.players, null) }, '🎲 Play again'),
-      h('button', { class: 'btn ghost small', onclick: () => startSession(se.cfg, se.players, se.challenge) }, '↻ Same order')),
+      h('button', { class: 'btn ghost small', onclick: () => startSession(se.cfg, se.players, se.challenge, se.daily) }, '↻ Same order')),
     h('div', { class: 'row' },
       h('button', { class: 'btn ghost small', onclick: setup }, '⚙ Change'),
       h('button', { class: 'btn ghost small', onclick: home }, '⌂ Home')));

@@ -15,13 +15,13 @@ function loadMap() {
   return mapLoading;
 }
 
-function startSession(cfg, players, challenge) {
+function startSession(cfg, players, challenge, daily) {
   S.challenge = null;
-  S.session = { cfg, players, idx: 0, scores: [], challenge, help: !!S.setup.help };
+  S.session = { cfg, players, idx: 0, scores: [], challenge, help: !!S.setup.help, daily: daily != null ? daily : null };
   if (cfg.kind === 'board') {
     S.session.board = makeBoard(cfg);
-    if (cfg.games.includes('flags')) preloadFlags(pool(cfg.region));
-    if (cfg.games.includes('map')) loadMap().catch(() => toast('The map didn\'t load. Check your connection.'));
+    if (cfg.games.some((g) => g === 'flags' || g === 'flagmap' || g === 'duel')) preloadFlags(pool(cfg.region));
+    if (cfg.games.some((g) => MAP_GAMES.has(g))) loadMap().catch(() => toast('The map didn\'t load. Check your connection.'));
   } else {
     S.session.questions = makeRun(cfg);
     preloadFlags(S.session.questions.filter((q) => q.kind === 'flag').map((q) => q.id));
@@ -30,9 +30,12 @@ function startSession(cfg, players, challenge) {
 }
 function howTo(cfg) {
   if (cfg.kind === 'quick') return cfg.count + ' questions, one at a time. ' + (cfg.style === 'type' ? 'Type each answer; it moves on by itself. Skip adds 10 seconds.' : 'Tap the right answer. A wrong tap adds 5 seconds.');
-  const n = pool(cfg.region).length;
-  const parts = cfg.games.map((g) => g === 'map' ? 'find ' + n + ' countries on the map' : g === 'flags' ? 'name ' + n + ' flags' : g === 'shapes' ? 'name ' + n + ' outlines' : 'name ' + n + ' capitals');
-  return (cfg.games.length > 1 ? 'In this order: ' : '') + parts.join(', then ') + '. Most found wins; the faster time breaks a tie. Stuck? Give up to see what you missed.';
+  const board = makeBoard(cfg);
+  const what = { flags: (n) => 'name ' + n + ' flags', map: (n) => 'find ' + n + ' countries on the map', capitals: (n) => 'name ' + n + ' capitals', shapes: (n) => 'name ' + n + ' outlines',
+    revcap: (n) => 'name the country for ' + n + ' capitals', mapname: (n) => 'name ' + n + ' countries lit up on the map', borders: (n, sec) => 'name ' + n + ' land borders of ' + sec.countries.length + ' countries',
+    flagmap: (n) => 'tap ' + n + ' flags\' countries on the map', duel: (n) => 'pick the bigger country ' + n + ' times' };
+  const parts = board.map((sec) => what[sec.game](sec.ids.length, sec));
+  return (board.length > 1 ? 'In this order: ' : '') + parts.join(', then ') + '. Most found wins; the faster time breaks a tie. Stuck? Give up to see what you missed.';
 }
 function cover() {
   const se = S.session, name = se.players[se.idx], many = se.players.length > 1;
@@ -54,7 +57,7 @@ function countdown() {
     setTimeout(tick, 700);
   };
   // Don't start the clock before the map has arrived.
-  if (S.session.cfg.kind === 'board' && S.session.cfg.games.includes('map') && !window.GS_MAP) {
+  if (S.session.cfg.kind === 'board' && S.session.cfg.games.some((g) => MAP_GAMES.has(g)) && !window.GS_MAP) {
     mount(h('div', { class: 'app' }, h('div', { class: 'cover' }, h('p', { class: 'muted' }, 'Loading the map…'))));
     loadMap().then(go, () => { toast('The map didn\'t load. Check your connection and try again.'); cover(); });
   } else go();
@@ -81,6 +84,11 @@ function finishRun(score) {
   const se = S.session;
   score.kind = se.cfg.kind;
   se.scores.push(score);
+  // Daily run: the first finished go of the day is the one that counts.
+  if (se.daily != null && se.idx === 0) {
+    const d = store.get('gs_daily_v1', {});
+    if (!d[se.daily]) { d[se.daily] = { time: score.time, correct: score.correct, total: score.total }; store.set('gs_daily_v1', d); score.dailyFirst = true; }
+  }
   const k = bestKey(se.cfg), b = store.get('gs_best_v2', {});
   score.best = !b[k] || better(score, b[k], se.cfg.kind);
   if (score.best) { b[k] = { label: cfgLabel(se.cfg), time: score.time, correct: score.correct, total: score.total, name: score.name, at: Date.now() }; store.set('gs_best_v2', b); }
@@ -105,7 +113,7 @@ function playSection(R) {
     giveUp: () => giveUpDialog(R, api),
     quit: () => { if (confirm('Stop this run? It won\'t count.')) { R.clock.over = true; home(); } },
   };
-  api.ui = sec.game === 'map' ? mapGame(api) : gridGame(api);
+  api.ui = MAP_GAMES.has(sec.game) ? mapGame(api) : sec.game === 'borders' ? bordersGame(api) : sec.game === 'duel' ? duelGame(api) : gridGame(api);
 }
 function giveUpDialog(R, api) {
   const se = S.session, more = R.sec < se.board.length - 1;

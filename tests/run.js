@@ -65,6 +65,47 @@ GS.GAME_ORDERS.forEach((games, gi) => regions.forEach((region, ri) => {
   const code = GS.encodeCode(cfg), back = GS.decodeCode(code);
   ok(back && JSON.stringify(back) === JSON.stringify(cfg), 'board code round trip ' + code + ' ' + JSON.stringify(cfg) + ' → ' + JSON.stringify(back));
 }));
+// Long codes: any list of up to 9 games, in any order, with the new games.
+const allGames = GS.GAMES.map((g) => g.id);
+for (let i = 0; i < 1500; i++) {
+  const r = GS.rng(i + 77), n = 1 + Math.floor(r() * 9);
+  const games = allGames.slice().sort(() => r() - 0.5).slice(0, n);
+  if (!games.some((g) => allGames.indexOf(g) >= 4)) games[0] = allGames[4 + (i % 5)];
+  const cfg = { kind: 'board', games: [...new Set(games)], region: regions[i % 7], seed: Math.floor(r() * (1 << 21)) };
+  const code = GS.encodeCode(cfg), back = GS.decodeCode(code);
+  ok(code.replace(/-/g, '').length >= 10, 'long code ' + code);
+  ok(back && JSON.stringify(back) === JSON.stringify(cfg), 'long code round trip ' + code + ' ' + JSON.stringify(cfg) + ' → ' + JSON.stringify(back));
+}
+ok(GS.encodeCode({ kind: 'board', games: ['flags', 'map'], region: 'world', seed: 5 }).replace('-', '').length === 8, 'runs with only the 4 main games keep 8-character codes');
+let lcaught = 0;
+for (let i = 0; i < 300; i++) {
+  const cfg = { kind: 'board', games: ['borders', 'duel'], region: 'Europe', seed: i * 977 };
+  const code = GS.encodeCode(cfg).replace(/-/g, ''); const pos = i % code.length; const ch = code[pos] === 'A' ? 'B' : 'A';
+  const bad = GS.decodeCode(code.slice(0, pos) + ch + code.slice(pos + 1));
+  if (!bad || JSON.stringify(bad) === JSON.stringify(cfg)) lcaught++;
+}
+ok(lcaught / 300 > 0.9, 'long code typos caught (' + lcaught + '/300)');
+
+// Borders: every answer is a real two-way land border; islands are left out.
+const bb = GS.makeBoard({ kind: 'board', games: ['borders'], region: 'world', seed: 3 })[0];
+ok(bb.countries.length > 140 && bb.countries.every((id) => GS.DATA.find((c) => c.id === id).nb.length), 'borders: ' + bb.countries.length + ' countries with neighbours');
+ok(bb.ids.every((k) => { const [a, b] = k.split('>'); return GS.DATA.find((c) => c.id === b).nb.includes(a); }), 'borders are two-way');
+const nbOf = (id) => GS.DATA.find((c) => c.id === id).nb;
+ok(nbOf('fr').join() === 'ad,be,ch,de,es,it,lu,mc', 'France borders: ' + nbOf('fr'));
+ok(nbOf('ca').join() === 'us' && nbOf('gb').join() === 'ie' && nbOf('jp').length === 0 && nbOf('lk').length === 0, 'Canada, UK, Japan, Sri Lanka borders');
+ok(!GS.DATA.some((c) => c.nb.includes('il')), 'no borders with a country left out of the game');
+// Bigger country: up to 20 rounds, areas always >10% apart, no country twice.
+const dd = GS.makeBoard({ kind: 'board', games: ['duel'], region: 'world', seed: 11 })[0];
+ok(dd.ids.length === 20, 'duel: 20 rounds');
+const seen = new Set(); let fair = true;
+dd.ids.forEach((k) => { const [a, b] = k.split('|'); seen.add(a); seen.add(b); const A = GS.DATA.find((c) => c.id === a).area, B = GS.DATA.find((c) => c.id === b).area; if (Math.abs(A - B) <= 0.1 * Math.max(A, B)) fair = false; });
+ok(fair && seen.size === 40, 'duel: clear winners, 40 different countries');
+ok(GS.duelWinner('ru|ca') === 'ru' && GS.duelWinner('mc|va') === 'mc', 'duel winner by area');
+// Daily run: same all day, different tomorrow, always two games and a continent.
+const d1 = GS.dailyCfg(20388), d2 = GS.dailyCfg(20388), d3 = GS.dailyCfg(20389);
+ok(JSON.stringify(d1) === JSON.stringify(d2) && JSON.stringify(d1) !== JSON.stringify(d3), 'daily: same day same run, next day different');
+for (let d = 20000; d < 20060; d++) { const c = GS.dailyCfg(d); ok(c.games.length === 2 && c.region !== 'world' && GS.decodeCode(GS.encodeCode(c)) !== null, 'daily ' + d + ' ok'); }
+
 // A typo in a code is caught most of the time (4-bit check).
 let caught = 0, tries = 0;
 for (let i = 0; i < 400; i++) {

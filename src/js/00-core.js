@@ -11,7 +11,14 @@ const GAMES = [
   { id: 'map', label: 'Map', em: '🌍', desc: 'The whole map. Tap the country it asks for.' },
   { id: 'capitals', label: 'Capitals', em: '🏛️', desc: 'Every country in a box. Tap one, type its capital.' },
   { id: 'shapes', label: 'Shapes', em: '🗺️', desc: 'Every country outline on one board. Tap one, type the country.' },
+  // "More games" (shown in a fold-out in setup). Keep this order: a game's position is part of the challenge code.
+  { id: 'revcap', label: 'Reverse Capitals', em: '🔁', desc: 'Every capital in a box. Tap one, type its country.', more: true },
+  { id: 'mapname', label: 'Map: name it', em: '🔦', desc: 'A country lights up on the map. Type its name.', more: true },
+  { id: 'borders', label: 'Borders', em: '🧱', desc: 'Name every country that shares a land border with it.', more: true },
+  { id: 'flagmap', label: 'Flag → Map', em: '📍', desc: 'See a flag, tap that country on the map.', more: true },
+  { id: 'duel', label: 'Bigger country', em: '⚖️', desc: 'Two countries: tap the one with more land area.', more: true },
 ];
+const MAP_GAMES = new Set(['map', 'mapname', 'flagmap']);
 const MODES = [
   { id: 'flags', label: 'Flags', em: '🏳️' },
   { id: 'shapes', label: 'Shapes', em: '🗺️' },
@@ -51,7 +58,7 @@ function isRight(id, kind, typed) {
   return set.has(n) || set.has(n.replace(/^cityof/, '').replace(/city$/, ''));
 }
 const answerText = (id, kind) => kind === 'capital' ? BY_ID[id].capital : BY_ID[id].name;
-const kindOfGame = (g) => g === 'capitals' ? 'capital' : g === 'shapes' ? 'shape' : g === 'map' ? 'map' : 'flag';
+const kindOfGame = (g) => g === 'capitals' ? 'capital' : g === 'shapes' ? 'shape' : MAP_GAMES.has(g) ? 'map' : g === 'revcap' || g === 'borders' ? 'country' : g === 'duel' ? 'duel' : 'flag';
 
 /* ---------------- seeded random ---------------- */
 function rng(seed) {
@@ -85,9 +92,28 @@ function makeBoard(cfg) {
   return cfg.games.map((g, i) => {
     const r = rng((cfg.seed * 31 + i * 7919 + g.length * 104729) >>> 0);
     const ids = pool(cfg.region);
-    return { game: g, kind: kindOfGame(g), ids: shuffle(ids, r) };
+    const sec = { game: g, kind: kindOfGame(g), ids: shuffle(ids, r) };
+    if (g === 'borders') {
+      // Countries with at least one land neighbour in the game; each neighbour is one answer ("de>fr").
+      sec.countries = sec.ids.filter((id) => BY_ID[id].nb.length);
+      sec.ids = sec.countries.flatMap((id) => BY_ID[id].nb.map((n) => id + '>' + n));
+    } else if (g === 'duel') {
+      // Up to 20 pairs; the two areas always differ by more than 10%, so every round has a clear answer.
+      const left = sec.ids.slice(), pairs = [];
+      while (left.length > 1 && pairs.length < 20) {
+        const a = left.shift();
+        const j = left.findIndex((b) => Math.abs(BY_ID[a].area - BY_ID[b].area) > 0.1 * Math.max(BY_ID[a].area, BY_ID[b].area));
+        if (j < 0) continue;
+        const [b] = left.splice(j, 1);
+        pairs.push(r() < 0.5 ? a + '|' + b : b + '|' + a);
+      }
+      sec.ids = pairs;
+    }
+    return sec;
   });
 }
+// The right answer for a duel round "a|b": whichever is bigger.
+const duelWinner = (key) => { const [a, b] = key.split('|'); return BY_ID[a].area > BY_ID[b].area ? a : b; };
 
 /* ---------------- challenge codes ---------------- */
 // 40 bits → 8 characters (Crockford base 32):
@@ -96,8 +122,8 @@ function makeBoard(cfg) {
 // games = index into GAME_ORDERS (every ordered choice of 1–4 games: 4 + 12 + 24 + 24 = 64).
 const B32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 const SEED_MAX = 1 << 21;
-const GAME_ORDERS = (function () {
-  const ids = GAMES.map((g) => g.id), out = [];
+const GAME_ORDERS = (function () { // the original 4 games only (8-character codes)
+  const ids = GAMES.slice(0, 4).map((g) => g.id), out = [];
   const go = (cur) => { if (cur.length) out.push(cur.slice()); if (cur.length === ids.length) return; ids.forEach((g) => { if (!cur.includes(g)) { cur.push(g); go(cur); cur.pop(); } }); };
   go([]);
   return out.sort((a, b) => a.length - b.length || a.join().localeCompare(b.join()));
@@ -117,7 +143,45 @@ function cfgBits(cfg) {
   const m = MODES.findIndex((x) => x.id === cfg.mode), s = STYLES.findIndex((x) => x.id === cfg.style);
   return (m << 12) | (g << 9) | (s << 8) | cfg.count;
 }
+// Longer codes (10+ characters) for board runs that use any of the "More games" (any list of up to 9 games):
+//   n−1 (4 bits) · games (4 bits each, index in GAMES) · region 3 · seed 21 · check 6
+// The games + region bits are scrambled with the seed; n is not (the decoder needs it to know the layout).
+const group = (s) => s.match(/.{1,4}/g).join('-');
+function scrambleBits(seed, bits) {
+  const r = rng(seed ^ 0x51ed27), out = [];
+  for (let i = 0; i < bits; i++) out.push(r() < 0.5 ? 0n : 1n);
+  return out.reduce((v, b) => (v << 1n) | b, 0n);
+}
+const check6 = (p, seed) => { let x = 0x811c9dc5; for (const ch of p.toString(16) + ':' + seed) x = Math.imul(x ^ ch.charCodeAt(0), 0x01000193); return BigInt((x >>> 0) % 64); };
+function encodeLong(cfg) {
+  const n = cfg.games.length, seed = BigInt(cfg.seed % SEED_MAX), bits = 4 * n + 3;
+  let p = 0n;
+  cfg.games.forEach((g) => { p = (p << 4n) | BigInt(GAMES.findIndex((x) => x.id === g)); });
+  p = (p << 3n) | BigInt(REGIONS.findIndex((x) => x.id === cfg.region));
+  const top = (BigInt(n - 1) << BigInt(bits)) | (p ^ scrambleBits(cfg.seed % SEED_MAX, bits));
+  let v = (top << 27n) | (seed << 6n) | check6(p, cfg.seed % SEED_MAX);
+  let out = '';
+  while (v > 0n) { out = B32[Number(v % 32n)] + out; v /= 32n; }
+  return group(out.padStart(10, '0'));
+}
+function decodeLong(t) {
+  let v = 0n;
+  for (const ch of t) { const i = B32.indexOf(ch); if (i < 0) return null; v = v * 32n + BigInt(i); }
+  const check = v & 63n, seed = Number((v >> 6n) & BigInt(SEED_MAX - 1)), top = v >> 27n;
+  for (let n = 1; n <= GAMES.length; n++) {
+    const bits = 4 * n + 3;
+    if ((top >> BigInt(bits)) !== BigInt(n - 1)) continue;
+    const p = (top & ((1n << BigInt(bits)) - 1n)) ^ scrambleBits(seed, bits);
+    if (check6(p, seed) !== check) continue;
+    const g = Number(p & 7n), games = [];
+    for (let i = n - 1; i >= 0; i--) games.push(Number((p >> BigInt(3 + 4 * i)) & 15n));
+    if (!REGIONS[g] || games.some((x) => !GAMES[x]) || new Set(games).size !== n) return null;
+    return { kind: 'board', games: games.map((x) => GAMES[x].id), region: REGIONS[g].id, seed };
+  }
+  return null;
+}
 function encodeCode(cfg) {
+  if (cfg.kind === 'board' && cfg.games.some((g) => GAMES.findIndex((x) => x.id === g) >= 4)) return encodeLong(cfg);
   const seed = cfg.seed % SEED_MAX, k = cfgBits(cfg);
   let v = ((k ^ scramble(seed)) * SEED_MAX + seed) * 16 + checkOf(k, seed);
   let out = '';
@@ -126,6 +190,7 @@ function encodeCode(cfg) {
 }
 function decodeCode(text) {
   const t = String(text || '').toUpperCase().replace(/[IL]/g, '1').replace(/O/g, '0').replace(/[^0-9A-Z]/g, '');
+  if (t.length >= 10 && t.length <= 16) return decodeLong(t);
   if (t.length !== 8) return null;
   let v = 0;
   for (const ch of t) { const i = B32.indexOf(ch); if (i < 0) return null; v = v * 32 + i; }
@@ -167,7 +232,7 @@ const modeOf = (id) => MODES.find((x) => x.id === id);
 const regionOf = (id) => REGIONS.find((x) => x.id === id);
 const styleOf = (id) => STYLES.find((x) => x.id === id);
 const regionLabel = (id) => regionOf(id).short || regionOf(id).label;
-function cfgTotal(cfg) { return cfg.kind === 'board' ? cfg.games.length * pool(cfg.region).length : cfg.count; }
+function cfgTotal(cfg) { return cfg.kind === 'board' ? makeBoard(cfg).reduce((n, sec) => n + sec.ids.length, 0) : cfg.count; }
 function cfgLabel(cfg) {
   if (cfg.kind === 'board') return cfg.games.map((g) => gameOf(g).label).join(' + ') + ' · ' + regionLabel(cfg.region);
   return [modeOf(cfg.mode).label, regionLabel(cfg.region), cfg.count === pool(cfg.region).length ? 'All ' + cfg.count : String(cfg.count), styleOf(cfg.style).label].join(' · ') + ' · Quick';
@@ -227,5 +292,17 @@ function suggest(typed, kind) {
   return out;
 }
 
-window.GS = { suggest, editDistance, norm, isRight, answersFor, makeRun, makeBoard, encodeCode, decodeCode, fmtTime, pool, rng, better, compare, GAME_ORDERS, cfgLabel, DATA };
+/* ---------------- daily run ---------------- */
+// The same run for everyone on the same (UTC) day: a continent (they take turns) and two games, in an order
+// picked from the date. Day numbers count days since 1 Jan 1970 (UTC).
+const DAILY_REGIONS = ['Europe', 'Africa', 'Asia', 'North America', 'South America', 'Oceania'];
+const DAILY_GAMES = ['flags', 'map', 'capitals', 'shapes', 'revcap', 'flagmap'];
+const todayNum = () => Math.floor(Date.now() / 86400000);
+function dailyCfg(day) {
+  const r = rng((day * 2654435761) >>> 0);
+  return { kind: 'board', games: shuffle(DAILY_GAMES, r).slice(0, 2), region: DAILY_REGIONS[day % DAILY_REGIONS.length], seed: Math.floor(r() * SEED_MAX) };
+}
+const dayLabel = (day) => new Date(day * 86400000).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+
+window.GS = { dailyCfg, duelWinner, GAMES, suggest, editDistance, norm, isRight, answersFor, makeRun, makeBoard, encodeCode, decodeCode, fmtTime, pool, rng, better, compare, GAME_ORDERS, cfgLabel, DATA };
 if (window.GS_NO_UI) return;
