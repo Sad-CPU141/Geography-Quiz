@@ -1,7 +1,7 @@
-/* Geography Speedrun f6a0d49a7f — built from src/js/ by build.js. Edit src/, not this file. */
+/* Geography Speedrun 219e3f6825 — built from src/js/ by build.js. Edit src/, not this file. */
 (function () {
 'use strict';
-const APP_VERSION = "f6a0d49a7f";
+const APP_VERSION = "219e3f6825";
 /* ---- core: data, answer matching, runs, challenge codes (no DOM; tested by tests/run.js) ---- */
 const DATA = window.GS_DATA.countries;
 const BY_ID = Object.fromEntries(DATA.map((c) => [c.id, c]));
@@ -773,7 +773,7 @@ function nameField() {
 function setup() {
   const st = S.setup;
   if (S.liveNext) { st.kind = 'board'; st.group = 'live'; } // picking the next round of an online race
-  st.games = (st.games || []).filter((g) => gameOf(g) && !gameOf(g).retired); if (!st.games.length) st.games = ['flags'];
+  st.games = (st.games || []).filter((g) => gameOf(g) && !gameOf(g).retired); // can be empty (owner): then Start waits for a game
   const save = () => store.set('gs_setup_v2', st);
   const set = (k) => (v) => { st[k] = v; save(); setup(); };
   const regionItems = REGIONS.map((r) => ({ id: r.id, label: r.short || r.label, sub: pool(r.id).length + '' }));
@@ -783,6 +783,7 @@ function setup() {
   // Where this run is: one region, several continents, or N random countries.
   const where = (cfg) => st.multi ? withWhere(cfg, st.regions) : st.region === 'mixed' ? (mixedOk ? withWhere(Object.assign(cfg, { region: 'world' }), [], Math.min(196, st.mixN)) : Object.assign(cfg, { region: 'world' })) : cfg;
   const noWhere = st.multi && !st.regions.length;
+  const noGames = st.kind === 'board' && !st.games.length;
   const n = noWhere ? 0 : cfgPool(where({ kind: 'board', games: [], region: st.region, seed: 1 })).length;
   let nameInput;
   const addPlayer = () => {
@@ -797,18 +798,25 @@ function setup() {
   // in tabs (Classic, Map, Flags, Words, Puzzles) — tap one to add it to the run (or take it out).
   function gamesCard() {
     const move = (g, d) => { const i = st.games.indexOf(g), j = i + d; if (j < 0 || j >= st.games.length) return; [st.games[i], st.games[j]] = [st.games[j], st.games[i]]; save(); setup(); };
-    const toggle = (g) => { if (st.games.includes(g)) { if (st.games.length === 1) return toast('Pick at least one game'); st.games = st.games.filter((x) => x !== g); } else st.games.push(g); save(); setup(); };
+    const toggle = (g) => { if (st.games.includes(g)) st.games = st.games.filter((x) => x !== g); else st.games.push(g); save(); setup(); };
     const cat = GAME_CATS.find((c) => c.id === st.cat) || GAME_CATS[0];
     if (!st.counts || typeof st.counts !== 'object') st.counts = {};
     // How many questions for this game: "All" (or its normal number) or a smaller/bigger one.
     // How many for this game: type a number, or leave it empty for Normal (all of the run's countries — e.g.
     // Oceania = 14 flags — or the game's normal number of rounds).
+    // Country games: empty = all of them ("All 46"; with Mixed 5 it's "All 5"); a number = that many ("10 of 46").
+    // Round games: empty = the usual number ("1 puzzle"); a number = that many ("3 puzzles").
+    const perGame = st.region === 'mixed' && !st.multi && st.kind === 'board' ? Math.min(st.mixN, n) : n;
+    const units = { countries: ['country', 'countries'], rounds: ['round', 'rounds'], puzzles: ['puzzle', 'puzzles'], letters: ['letter', 'letters'], names: ['name', 'names'] };
+    const plural = (k, u) => (units[u] ? units[u][k === 1 ? 0 : 1] : u);
     const howMany = (g) => {
       const c = GAME_COUNTS[g]; if (!c) return null;
-      const normal = c.def || n;
-      const box = h('input', { class: 'howmany', type: 'number', inputmode: 'numeric', min: 1, max: 999, placeholder: 'Normal', value: st.counts[g] ? String(st.counts[g]) : '', 'aria-label': 'How many ' + c.unit + ' in ' + gameOf(g).label + ' (empty = normal)',
-        onchange: (e) => { const v = Math.floor(+e.target.value || 0); if (v > 0) st.counts[g] = Math.min(999, v); else delete st.counts[g]; save(); setup(); } });
-      return h('label', { class: 'howmany-row' }, box, h('small', null, st.counts[g] ? c.unit : c.unit + ' · normal ' + normal));
+      const byCountry = !c.def, v = st.counts[g] || 0;
+      const box = h('input', { class: 'howmany', type: 'number', inputmode: 'numeric', min: 1, max: 999, placeholder: byCountry ? 'All' : String(c.def), value: v ? String(v) : '', 'aria-label': 'How many ' + c.unit + ' in ' + gameOf(g).label,
+        onchange: (e) => { const x = Math.floor(+e.target.value || 0); if (x > 0) st.counts[g] = Math.min(999, x); else delete st.counts[g]; save(); setup(); } });
+      const note = byCountry ? (v ? (v < perGame ? 'of ' + perGame + ' ' + plural(perGame, c.unit) : 'all ' + perGame + ' ' + plural(perGame, c.unit)) : 'all ' + perGame + ' ' + plural(perGame, c.unit))
+        : plural(v || c.def, c.unit);
+      return h('label', { class: 'howmany-row' }, box, h('small', null, note));
     };
     const picked = st.games.map((g, i) => {
       const G = gameOf(g);
@@ -818,7 +826,7 @@ function setup() {
         h('span', { class: 'game-move' },
           st.games.length > 1 ? [h('button', { class: 'iconbtn sm', 'aria-label': 'Move ' + G.label + ' up', disabled: i === 0, onclick: () => move(g, -1) }, '↑'),
             h('button', { class: 'iconbtn sm', 'aria-label': 'Move ' + G.label + ' down', disabled: i === st.games.length - 1, onclick: () => move(g, 1) }, '↓')] : null,
-          h('button', { class: 'iconbtn sm rm', 'aria-label': 'Remove ' + G.label, disabled: st.games.length === 1, onclick: () => toggle(g) }, '✕')));
+          h('button', { class: 'iconbtn sm rm', 'aria-label': 'Remove ' + G.label, onclick: () => toggle(g) }, '✕')));
     });
     const row = (g) => {
       const on = st.games.includes(g), G = gameOf(g);
@@ -854,7 +862,9 @@ function setup() {
         : h('button', { class: 'switch', role: 'switch', 'aria-checked': String(isOn(o)), 'aria-label': o.label, onclick: () => { st[o.k] = o.invert ? !isOn(o) : !st[o.k]; save(); setup(); } }, h('i'));
       return h('div', { class: 'optwrap' }, h('div', { class: 'optrow' }, h('span', { class: 'opt-name' }, o.label, q), ctl), tip);
     };
-    const active = all.filter(isOn), rest = all.filter((o) => !isOn(o));
+    // Spelling help and Practice always show (owner); the others show when on, the rest fold away.
+    const always = (o) => o.k === 'help' || o.k === 'practice';
+    const active = all.filter((o) => always(o) || isOn(o)), rest = all.filter((o) => !always(o) && !isOn(o));
     if (!all.length) return null;
     const open = !!st.optsOpen;
     return h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Options'),
@@ -905,12 +915,12 @@ function setup() {
         h('div', { class: 'chips' }, S.players.map((p, i) => h('span', { class: 'chip' }, p, h('button', { 'aria-label': 'Remove ' + p, onclick: () => { S.players.splice(i, 1); store.set('gs_players_v1', S.players); setup(); } }, '✕')))),
         h('div', { class: 'row' }, nameInput = h('input', { id: 'pname', class: 'input', placeholder: 'Add a player', maxlength: 24, onkeydown: (e) => { if (e.key === 'Enter') addPlayer(); } }), h('button', { class: 'btn ghost small', style: { flex: '0 0 auto', width: 'auto' }, onclick: addPlayer }, '+ Add')),
       ] : nameField()),
-    S.liveNext ? h('button', { class: 'btn primary', disabled: noWhere, onclick: () => liveStartRound(liveCfg(cfgNow(), st)) }, '▶ Start round ' + ((LIVE.room && LIVE.room.round || 0) + 1)) :
-    st.group === 'live' && st.kind === 'board' ? h('button', { class: 'btn primary', disabled: noWhere, onclick: () => liveCreate(liveCfg(cfgNow(), st)) }, '🌐 Create room') :
+    S.liveNext ? h('button', { class: 'btn primary', disabled: noWhere || noGames, onclick: () => liveStartRound(liveCfg(cfgNow(), st)) }, '▶ Start round ' + ((LIVE.room && LIVE.room.round || 0) + 1)) :
+    st.group === 'live' && st.kind === 'board' ? h('button', { class: 'btn primary', disabled: noWhere || noGames, onclick: () => liveCreate(liveCfg(cfgNow(), st)) }, noGames ? 'Add a game first' : '🌐 Create room') :
     h('button', {
-      class: 'btn primary', disabled: noWhere || (st.group === true && S.players.length < 2),
+      class: 'btn primary', disabled: noWhere || noGames || (st.group === true && S.players.length < 2),
       onclick: () => startSession(cfgNow(), st.group === true ? S.players.slice() : [S.myName || 'You'], null),
-    }, st.group === true && S.players.length < 2 ? 'Add at least 2 players' : '▶ Start'),
+    }, noGames ? 'Add a game first' : st.group === true && S.players.length < 2 ? 'Add at least 2 players' : '▶ Start'),
   ));
 }
 
@@ -1047,7 +1057,7 @@ function gameBrowser(st, done) {
   const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); if (open) { open = null; draw(); } else close(); } };
   function close() { document.removeEventListener('keydown', onKey, true); bg.remove(); st.browseTab = tab; done(); }
   const toggle = (g) => {
-    if (st.games.includes(g)) { if (st.games.length === 1) return toast('Pick at least one game'); st.games = st.games.filter((x) => x !== g); } else st.games.push(g);
+    if (st.games.includes(g)) st.games = st.games.filter((x) => x !== g); else st.games.push(g);
     draw();
   };
   const addBtn = (g, big) => { const on = st.games.includes(g); return h('button', { class: 'gb-add' + (on ? ' on' : '') + (big ? ' big' : ''), 'aria-label': (on ? 'Remove ' : 'Add ') + gameOf(g).label, onclick: (e) => { e.stopPropagation(); toggle(g); } }, on ? (big ? '✓ In your run' : '✓') : (big ? '＋ Add to run' : '＋')); };
@@ -2278,22 +2288,41 @@ function currencyGame(api) {
 
 /* Clue reveal: clues one by one, hardest first. Type the country any time; "Next clue" shows another.
    After the last clue, "Give up on this one" counts it missed. */
-function cluesFor(id) {
+// Clue reveal's clues for a country: a random mix each time (owner) — which clues, their order and their wording
+// change from run to run — but always hard ones first (size, coast, hemisphere, languages, continent…), medium
+// ones next (region, currency, capital, what people are called) and the giveaways last (neighbours, flag, name).
+// Same run (seed) + same country = same clues, so challenges stay fair. Every clue is a fact from the data.
+const CLUE_CACHE = {};
+function cluesFor(id, seedFor) {
+  const seed = seedFor != null ? seedFor : S.session && S.session.cfg ? S.session.cfg.seed : 1, key = seed + ':' + id;
+  if (CLUE_CACHE[key]) return CLUE_CACHE[key];
+  let hsh = seed >>> 0; for (const ch of id) hsh = Math.imul(hsh ^ ch.charCodeAt(0), 0x01000193) >>> 0;
+  const r = rng(hsh), pick = (arr) => arr[Math.floor(r() * arr.length)];
   const c = BY_ID[id], round2 = (a) => { const p = Math.pow(10, Math.max(0, String(Math.round(a)).length - 2)); return Math.round(a / p) * p; };
-  // Hardest first (owner: the continent first was too easy).
-  const list = [
-    ['📐', 'Size', 'About ' + round2(c.area).toLocaleString('en-US') + ' km²'],
-    ['🏖️', 'Coast', (c.land ? 'Landlocked' : 'Has a coastline') + ' · ' + (c.nb.length ? c.nb.length + (c.nb.length === 1 ? ' land neighbour' : ' land neighbours') : 'no land neighbours')],
-    ['🗣️', 'Language' + (c.lang.length > 1 ? 's' : ''), c.lang.slice(0, 3).join(', ') || '—'],
-    ['🌍', 'Continent', regionOf(c.region).label],
-    ['🧭', 'Part of the world', c.sub || regionOf(c.region).label],
-    ['💰', 'Currency', c.cur.join(', ') || '—'],
-    ['🏛️', 'Capital starts with', c.capital[0]],
+  const area = round2(c.area).toLocaleString('en-US') + ' km²', nbN = c.nb.length, [lat, lon] = c.ll;
+  const langs = c.lang.slice(0, 3).join(', '), cont = regionOf(c.region).label;
+  const hard = [
+    ['📐', 'Size', pick(['About ' + area, 'It covers roughly ' + area, 'Its area is about ' + area])],
+    ['🏖️', 'Coast', c.land ? pick(['Landlocked — no coastline', 'It has no sea coast', 'You can\'t reach it by sea']) : pick(['It has a coastline', 'It touches the sea', 'Not landlocked'])],
+    ['🧱', 'Neighbours', nbN ? pick([nbN + (nbN === 1 ? ' country borders it by land' : ' countries border it by land'), 'It has ' + nbN + ' land ' + (nbN === 1 ? 'neighbour' : 'neighbours')]) : pick(['No land borders at all', 'It shares no land border'])],
+    ['🧭', 'Hemisphere', 'Its middle is in the ' + (lat >= 0 ? 'Northern' : 'Southern') + ' and ' + (lon >= 0 ? 'Eastern' : 'Western') + ' hemispheres'],
   ];
-  if (c.nb.length) list.push(['🧱', 'Neighbours', c.nb.map((n) => BY_ID[n].name).join(', ')]);
-  list.push(['🏳️', 'Flag', null]);
-  list.push(['🔤', 'Name', c.name[0] + ' · ' + c.name.replace(/[^A-Za-zÀ-ÿ]/g, '').length + ' letters']);
-  return list;
+  if (langs) hard.push(['🗣️', 'Language' + (c.lang.length > 1 ? 's' : ''), pick(['Official: ', 'People there speak ', 'Official language' + (c.lang.length > 1 ? 's' : '') + ': ']) + langs]);
+  hard.push(['🌍', 'Continent', pick(['It\'s in ' + cont, 'Continent: ' + cont])]);
+  const mid = [
+    ['🗺️', 'Part of the world', c.sub || cont],
+    ['🏛️', 'Capital', pick(['The capital starts with ' + c.capital[0], 'Its capital begins with "' + c.capital[0] + '"'])],
+  ];
+  if (c.cur.length) mid.push(['💰', 'Currency', pick(['Money: ', 'They pay with the ', 'Currency: ']) + c.cur.join(', ')]);
+  if (c.dem && norm(c.dem) !== norm(c.name)) mid.push(['🧑', 'People', pick(['People there are called ' + c.dem, 'Someone from there is ' + c.dem])]);
+  const late = [];
+  if (nbN) late.push(['🧱', 'Borders', pick(['It borders ', 'Neighbours: ']) + c.nb.map((n) => BY_ID[n].name).join(', ')]);
+  late.push(['🏳️', 'Flag', null]);
+  const letters = c.name.replace(/[^A-Za-zÀ-ÿ]/g, '').length;
+  late.push(['🔤', 'Name', pick(['Starts with ' + c.name[0] + ' · ' + letters + ' letters', c.name[0] + '… (' + letters + ' letters)'])]);
+  // Hard ones in a random order (4–6 of them), then medium in a random order, then the giveaways.
+  const list = shuffle(hard, r).concat(shuffle(mid, r), late);
+  return (CLUE_CACHE[key] = list);
 }
 function cluesGame(api) {
   // You start with one clue; every wrong guess (a real country) shows the next one. No clues left → missed.
@@ -3243,6 +3272,6 @@ checkUpdate();
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkUpdate(); });
 setInterval(checkUpdate, 600000);
 // For the browser tests: the current session (read-only).
-try { Object.defineProperty(window.GS, 'session', { get: () => S.session }); } catch (e) { /* already there */ }
+try { Object.defineProperty(window.GS, 'session', { get: () => S.session }); window.GS.cluesFor = cluesFor; } catch (e) { /* already there */ }
 
 })();

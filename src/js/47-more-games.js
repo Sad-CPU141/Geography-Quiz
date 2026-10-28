@@ -82,22 +82,41 @@ function currencyGame(api) {
 
 /* Clue reveal: clues one by one, hardest first. Type the country any time; "Next clue" shows another.
    After the last clue, "Give up on this one" counts it missed. */
-function cluesFor(id) {
+// Clue reveal's clues for a country: a random mix each time (owner) — which clues, their order and their wording
+// change from run to run — but always hard ones first (size, coast, hemisphere, languages, continent…), medium
+// ones next (region, currency, capital, what people are called) and the giveaways last (neighbours, flag, name).
+// Same run (seed) + same country = same clues, so challenges stay fair. Every clue is a fact from the data.
+const CLUE_CACHE = {};
+function cluesFor(id, seedFor) {
+  const seed = seedFor != null ? seedFor : S.session && S.session.cfg ? S.session.cfg.seed : 1, key = seed + ':' + id;
+  if (CLUE_CACHE[key]) return CLUE_CACHE[key];
+  let hsh = seed >>> 0; for (const ch of id) hsh = Math.imul(hsh ^ ch.charCodeAt(0), 0x01000193) >>> 0;
+  const r = rng(hsh), pick = (arr) => arr[Math.floor(r() * arr.length)];
   const c = BY_ID[id], round2 = (a) => { const p = Math.pow(10, Math.max(0, String(Math.round(a)).length - 2)); return Math.round(a / p) * p; };
-  // Hardest first (owner: the continent first was too easy).
-  const list = [
-    ['📐', 'Size', 'About ' + round2(c.area).toLocaleString('en-US') + ' km²'],
-    ['🏖️', 'Coast', (c.land ? 'Landlocked' : 'Has a coastline') + ' · ' + (c.nb.length ? c.nb.length + (c.nb.length === 1 ? ' land neighbour' : ' land neighbours') : 'no land neighbours')],
-    ['🗣️', 'Language' + (c.lang.length > 1 ? 's' : ''), c.lang.slice(0, 3).join(', ') || '—'],
-    ['🌍', 'Continent', regionOf(c.region).label],
-    ['🧭', 'Part of the world', c.sub || regionOf(c.region).label],
-    ['💰', 'Currency', c.cur.join(', ') || '—'],
-    ['🏛️', 'Capital starts with', c.capital[0]],
+  const area = round2(c.area).toLocaleString('en-US') + ' km²', nbN = c.nb.length, [lat, lon] = c.ll;
+  const langs = c.lang.slice(0, 3).join(', '), cont = regionOf(c.region).label;
+  const hard = [
+    ['📐', 'Size', pick(['About ' + area, 'It covers roughly ' + area, 'Its area is about ' + area])],
+    ['🏖️', 'Coast', c.land ? pick(['Landlocked — no coastline', 'It has no sea coast', 'You can\'t reach it by sea']) : pick(['It has a coastline', 'It touches the sea', 'Not landlocked'])],
+    ['🧱', 'Neighbours', nbN ? pick([nbN + (nbN === 1 ? ' country borders it by land' : ' countries border it by land'), 'It has ' + nbN + ' land ' + (nbN === 1 ? 'neighbour' : 'neighbours')]) : pick(['No land borders at all', 'It shares no land border'])],
+    ['🧭', 'Hemisphere', 'Its middle is in the ' + (lat >= 0 ? 'Northern' : 'Southern') + ' and ' + (lon >= 0 ? 'Eastern' : 'Western') + ' hemispheres'],
   ];
-  if (c.nb.length) list.push(['🧱', 'Neighbours', c.nb.map((n) => BY_ID[n].name).join(', ')]);
-  list.push(['🏳️', 'Flag', null]);
-  list.push(['🔤', 'Name', c.name[0] + ' · ' + c.name.replace(/[^A-Za-zÀ-ÿ]/g, '').length + ' letters']);
-  return list;
+  if (langs) hard.push(['🗣️', 'Language' + (c.lang.length > 1 ? 's' : ''), pick(['Official: ', 'People there speak ', 'Official language' + (c.lang.length > 1 ? 's' : '') + ': ']) + langs]);
+  hard.push(['🌍', 'Continent', pick(['It\'s in ' + cont, 'Continent: ' + cont])]);
+  const mid = [
+    ['🗺️', 'Part of the world', c.sub || cont],
+    ['🏛️', 'Capital', pick(['The capital starts with ' + c.capital[0], 'Its capital begins with "' + c.capital[0] + '"'])],
+  ];
+  if (c.cur.length) mid.push(['💰', 'Currency', pick(['Money: ', 'They pay with the ', 'Currency: ']) + c.cur.join(', ')]);
+  if (c.dem && norm(c.dem) !== norm(c.name)) mid.push(['🧑', 'People', pick(['People there are called ' + c.dem, 'Someone from there is ' + c.dem])]);
+  const late = [];
+  if (nbN) late.push(['🧱', 'Borders', pick(['It borders ', 'Neighbours: ']) + c.nb.map((n) => BY_ID[n].name).join(', ')]);
+  late.push(['🏳️', 'Flag', null]);
+  const letters = c.name.replace(/[^A-Za-zÀ-ÿ]/g, '').length;
+  late.push(['🔤', 'Name', pick(['Starts with ' + c.name[0] + ' · ' + letters + ' letters', c.name[0] + '… (' + letters + ' letters)'])]);
+  // Hard ones in a random order (4–6 of them), then medium in a random order, then the giveaways.
+  const list = shuffle(hard, r).concat(shuffle(mid, r), late);
+  return (CLUE_CACHE[key] = list);
 }
 function cluesGame(api) {
   // You start with one clue; every wrong guess (a real country) shows the next one. No clues left → missed.

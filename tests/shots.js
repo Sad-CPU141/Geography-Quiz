@@ -485,6 +485,21 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
       const cov = await page.textContent('.cover');
       ok(/Flags 5/.test(cov) && /Border chain 2/.test(cov), 'how many: 5 flags and 2 Border chain puzzles, typed in (' + cov + ')');
     }
+    if (W < 500) {
+      // Remove every game: allowed, and Start waits for a game.
+      await page.goto(BASE); await page.click('button:has-text("▶ New run")'); await page.click('.opt:has-text("Full board")');
+      while (await page.$('.picked .game-row .rm')) await page.click('.picked .game-row .rm');
+      ok(await page.$('button.btn.primary[disabled]:has-text("Add a game first")') !== null, 'no games: Start says "Add a game first"');
+      // Spelling help and Practice always show; the how-many note with Mixed 5 says "all 5".
+      ok(await page.$('.card:has(.eyebrow:text-is("Options")) > .optwrap:has-text("Spelling help")') !== null && await page.$('.card:has(.eyebrow:text-is("Options")) > .optwrap:has-text("Practice")') !== null, 'spelling help and practice always visible');
+      await page.click('.add-games'); await page.click('.gb-card[data-game="flags"] .gb-add'); await page.click('.gb-head [aria-label="Done"]');
+      await page.click('.opt:has-text("Mixed")'); await page.fill('.mixn', '5'); await page.locator('.mixn').blur(); await page.waitForTimeout(150);
+      const note = await page.textContent('.picked .game-row[data-game="flags"] .howmany-row small');
+      ok(note === 'all 5 countries', 'how many with Mixed 5: "' + note + '"');
+      // Clue reveal: different first clues for different runs.
+      const cl = await page.evaluate(() => { const firsts = new Set(), words = new Set(); for (let k = 1; k <= 20; k++) { const c = window.GS.cluesFor('hu', k * 7919); firsts.add(c[0][1]); words.add(c.find((x) => x[1] === 'Size')[2]); } const last = window.GS.cluesFor('hu', 5); return [firsts.size, words.size, last[last.length - 1][1], JSON.stringify(window.GS.cluesFor('hu', 5)) === JSON.stringify(window.GS.cluesFor('hu', 5))]; });
+      ok(cl[0] >= 3 && cl[1] >= 2 && cl[2] === 'Name' && cl[3], 'clue reveal: first clue varies (' + cl[0] + ' kinds), wording varies (' + cl[1] + '), giveaways last, same run = same clues');
+    }
     ok(errors.length === 0, 'browser ' + W + ': no page errors ' + JSON.stringify(errors));
     await ctx.close();
   }
@@ -518,7 +533,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await opt(page, 'One shot');
     { const t = await page.$('.card:has(.eyebrow:text-is("Options")) .more-toggle[aria-expanded="true"]'); if (t) await t.click(); }
     const names = await page.$$eval('.card:has(.eyebrow:text-is("Options")) > .optwrap .opt-name', (e) => e.map((x) => x.textContent));
-    ok(names.length === 1 && /One shot/.test(names[0]), 'options: only the active one shows above the fold-out (' + names.join(', ') + ')');
+    ok(names.length === 3 && /Spelling help/.test(names[0]) && /Practice/.test(names[1]) && /One shot/.test(names[2]), 'options: Spelling help + Practice always, then the active one, above the fold-out (' + names.join(', ') + ')');
     await page.click('.optrow:has-text("One shot") .opt-q');
     ok(await page.isVisible('.opt-tip:has-text("Enter")'), 'options: ? explains it');
     await page.click('.card:has(.eyebrow:text-is("Options")) .more-toggle[aria-expanded="false"]');
