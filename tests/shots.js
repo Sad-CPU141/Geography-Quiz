@@ -351,7 +351,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await page.click('button:has-text("Give up")'); await page.click('button:has-text("Give up on")'); await page.click('.reveal-bar button');
     await page.waitForSelector('svg.map');
     const mapIds = await page.$$eval('svg.map:not(.inset svg) path.cty:not(.off)', (ps) => [...new Set(ps.map((p) => p.dataset.id))].sort());
-    ok(mapIds.join() === flagIds.join(), 'Mixed 30: the map game uses the same 30 countries (' + mapIds.length + ')');
+    ok(mapIds.length === 30 && mapIds.join() !== flagIds.join(), 'Mixed 30: the map game gets its own 30 random countries');
     // Pick several: Africa + Europe.
     await page.goto(BASE);
     await setupBoard(page, ['Flags'], 'World');
@@ -623,6 +623,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     const errors = []; [A, B].forEach((p) => p.on('pageerror', (e) => errors.push(e.message)));
     await A.goto(BASE + '?net=local');
     await setupBoard(A, ['Flags'], 'Oceania');
+    await A.click('.optrow:has-text("Spelling help") .switch'); // the host's spelling help is for everyone
     await A.click('.opt:has-text("Online")');
     await A.fill('input[placeholder="Name"]', 'Xrazt');
     await A.click('button:has-text("Create room")');
@@ -642,6 +643,8 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
       const r = window.jsQR(x.getImageData(0, 0, 400, 400).data, 400, 400); return r && r.data;
     });
     ok(qrText === link, 'QR code reads back as the join link (' + qrText + ')');
+    // Sam's own spelling-help switch is off (the tabs share storage, so switch it off before his page loads).
+    await A.evaluate(() => { const st = JSON.parse(localStorage.getItem('gs_setup_v2') || '{}'); st.help = false; localStorage.setItem('gs_setup_v2', JSON.stringify(st)); });
     await B.goto(BASE + '?net=local&room=' + code);
     await B.waitForSelector('.input.code');
     ok((await B.inputValue('.input.code')) === code, 'invite link fills in the code');
@@ -656,6 +659,13 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await Promise.all([A.waitForSelector('.tile.active', { timeout: 9000 }), B.waitForSelector('.tile.active', { timeout: 9000 })]);
     const oa = await A.$$eval('.tile', (ts) => ts.map((t) => t.dataset.id)), ob = await B.$$eval('.tile', (ts) => ts.map((t) => t.dataset.id));
     ok(JSON.stringify(oa) === JSON.stringify(ob), 'both got the same board');
+    // Sam never turned spelling help on, but the room has it: a near miss gets a suggestion on his phone too.
+    await B.bringToFront();
+    const near = await B.evaluate(() => { const id = document.querySelector('.tile.active').dataset.id; const n = window.GS.DATA.find((c) => c.id === id).name; return n.slice(0, -1) + (n.slice(-1) === 'x' ? 'y' : 'x'); });
+    await B.type('.typebar input', near);
+    await B.waitForSelector('.suggest:not([hidden])', { timeout: 2000 }).catch(() => {});
+    ok(await B.$('.suggest:not([hidden])') !== null, 'spelling help is on for everyone in the room (Sam typed ' + near + ')');
+    await B.fill('.typebar input', '');
     await B.bringToFront();
     for (let i = 0; i < 3; i++) await typeActive(B, 'flag');
     await B.waitForTimeout(800); // let Sam's phone send its progress (a background tab's timers are throttled)
@@ -666,8 +676,11 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await B.screenshot({ path: path.join(outDir, 'live-playing.png') });
     for (let i = 0; i < 9; i++) { if (!(await A.$('.tile.active'))) break; await typeActive(A, 'flag'); }
     await A.waitForSelector('.result-time');
-    await A.waitForFunction(() => /playing · 3\/14/.test(document.querySelector('.card.sky') ? document.querySelector('.card.sky').textContent : ''), null, { timeout: 8000 }).catch(() => {});
-    const acard = await A.textContent('.card.sky'); ok(/playing · 3\/14/.test(acard), 'Xrazt\'s results show Sam still playing 3/14 (' + acard + ')');
+    await A.waitForFunction(() => /still playing…/.test(document.querySelector('.card.sky') ? document.querySelector('.card.sky').textContent : ''), null, { timeout: 8000 }).catch(() => {});
+    const acard = await A.textContent('.card.sky');
+    ok(/Sam.*still playing…/.test(acard) && !/3\/14/.test(acard), 'Xrazt\'s results show Sam still playing, without his score (' + acard + ')');
+    ok(!/null|undefined/.test(acard), 'no "null" on the results card');
+    await A.screenshot({ path: path.join(outDir, 'live-waiting.png'), fullPage: true });
     await B.bringToFront();
     await B.click('button:has-text("Give up")'); await B.click('button:has-text("Give up and show me")');
     const clear = await B.evaluate(() => { const a = document.querySelector('.reveal-bar .btn').getBoundingClientRect(), l = document.querySelector('.livebar').getBoundingClientRect(); return a.bottom <= l.top && a.top >= 0; });
@@ -684,12 +697,20 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     const recs = Object.values(h2h);
     ok(recs.length === 1 && recs[0].w + recs[0].l + recs[0].t === 1 && await B.$('.card.sky .h2h') !== null, 'head to head: one result recorded and shown ' + JSON.stringify(recs));
     await B.screenshot({ path: path.join(outDir, 'live-results.png'), fullPage: true });
-    // Another round: the host restarts, both start again with a new order.
+    // Another round: the host goes back to the game list (Sam sees the host is picking), adds Capitals, starts.
     await A.bringToFront();
     await A.click('button:has-text("Another round")');
+    await A.waitForSelector('button:has-text("Start round 2")');
+    ok(await A.$('.game-row.on[data-game="flags"]') !== null && !(await A.$('text=Who is playing')), 'another round: the host is back on the game list (room\'s games picked)');
+    await A.screenshot({ path: path.join(outDir, 'live-next.png'), fullPage: true });
+    await B.waitForFunction(() => /picking the next round/.test(document.querySelector('.card.sky').textContent), null, { timeout: 4000 }).catch(() => {});
+    ok(/picking the next round/.test(await B.textContent('.card.sky')), 'Sam sees the host is picking');
+    await A.click('.game-pick[data-game="capitals"]');
+    await A.click('button:has-text("Start round 2")');
     await Promise.all([A.waitForSelector('.tile.active', { timeout: 9000 }), B.waitForSelector('.tile.active', { timeout: 9000 })]);
     const oa2 = await A.$$eval('.tile', (ts) => ts.map((t) => t.dataset.id));
     ok(JSON.stringify(oa2) !== JSON.stringify(oa) && JSON.stringify(oa2) === JSON.stringify(await B.$$eval('.tile', (ts) => ts.map((t) => t.dataset.id))), 'another round: new board, same for both');
+    ok(/Game 1\/2/i.test(await B.textContent('body')), 'round 2 has the host\'s new games (Flags + Capitals) on Sam\'s phone');
     ok(errors.length === 0, 'online race: no page errors ' + JSON.stringify(errors));
     await ctx.close();
     if (only === 'live') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }

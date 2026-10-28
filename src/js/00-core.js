@@ -82,11 +82,12 @@ function rng(seed) {
 function shuffle(arr, r) { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 const pool = (region) => DATA.filter((c) => region === 'world' || c.region === region).map((c) => c.id).sort();
 // The countries in a run: one continent or the world (cfg.region), several continents (cfg.regions), and
-// optionally only N of them picked at random from those (cfg.limit — "Mixed"; the same seed = the same N).
+// optionally only N of them picked at random from those (cfg.limit — "Mixed"). Each game in a run gets its own N
+// (game = its position), so you can't carry the same countries from one game to the next; same seed = same picks.
 const CONTINENTS = ['Africa', 'Asia', 'Europe', 'North America', 'South America', 'Oceania'];
-function cfgPool(cfg) {
+function cfgPool(cfg, game) {
   let ids = cfg.regions && cfg.regions.length ? DATA.filter((c) => cfg.regions.includes(c.region)).map((c) => c.id).sort() : pool(cfg.region);
-  if (cfg.limit && cfg.limit < ids.length) ids = shuffle(ids, rng((cfg.seed * 2654435761 + 97) >>> 0)).slice(0, cfg.limit).sort();
+  if (cfg.limit && cfg.limit < ids.length && game != null) ids = shuffle(ids, rng((cfg.seed * 2654435761 + 97 + game * 7907) >>> 0)).slice(0, cfg.limit).sort();
   return ids;
 }
 const byName = (ids) => ids.slice().sort((a, b) => BY_ID[a].name.localeCompare(BY_ID[b].name));
@@ -114,7 +115,7 @@ function makeBoard(cfg) {
   return cfg.games.map((g, i) => {
     const r = rng((cfg.seed * 31 + i * 7919 + g.length * 104729) >>> 0);
     // A practice run of your misses brings its own list of countries (cfg.custom[game]).
-    const ids = cfg.custom && cfg.custom[g] ? cfg.custom[g].slice().sort() : cfgPool(cfg);
+    const ids = cfg.custom && cfg.custom[g] ? cfg.custom[g].slice().sort() : cfgPool(cfg, i);
     const sec = { game: g, kind: kindOfGame(g), ids: shuffle(ids, r) };
     if (g === 'borders') {
       // Countries with at least one land neighbour in the game; each neighbour is one answer ("de>fr").
@@ -133,7 +134,7 @@ function makeBoard(cfg) {
       sec.ids = pairs;
     } else if (g === 'lang') {
       // Up to 20 official languages of the region's countries; 4 options each (see langOptions).
-      const here = new Set(cfgPool(cfg));
+      const here = new Set(cfgPool(cfg, i));
       // A region with under 10 languages (the Americas) also gets their other sentences, up to 10 rounds.
       const langs = LANGS.filter((l) => l.countries.some((c) => here.has(c)));
       let ids = shuffle(langs.map((l) => l.k), r).slice(0, 20);
@@ -326,7 +327,7 @@ function whereLabel(cfg) {
 }
 function cfgTotal(cfg) { return cfg.kind === 'board' ? makeBoard(cfg).reduce((n, sec) => n + sec.ids.length, 0) : cfg.count; }
 function cfgLabel(cfg) {
-  if (cfg.kind === 'board') return cfg.games.map((g) => gameOf(g).label).join(' + ') + ' · ' + (cfg.custom ? 'My misses' : whereLabel(cfg)) + (cfg.hard ? ' · No borders' : '') + (cfg.langType ? ' · Typed' : '');
+  if (cfg.kind === 'board') return cfg.games.map((g) => gameOf(g).label).join(' + ') + ' · ' + (cfg.custom ? 'My misses' : whereLabel(cfg)) + (cfg.hard ? ' · No borders' : '') + (cfg.langType ? ' · Typed' : '') + (cfg.help ? ' · Spelling help' : '');
   return [modeOf(cfg.mode).label, whereLabel(cfg), cfg.count === cfgPool(cfg).length ? 'All ' + cfg.count : String(cfg.count), styleOf(cfg.style).label].join(' · ') + ' · Quick';
 }
 const bestKey = (cfg) => cfg.kind === 'board' ? ['b', cfg.games.join('+'), cfg.region].join('|') + (optLetters(cfg) ? '|' + optLetters(cfg) : '') : [cfg.mode, cfg.region, cfg.count, cfg.style].join('|') + (optLetters(cfg) ? '|' + optLetters(cfg) : '');

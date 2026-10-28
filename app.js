@@ -1,7 +1,7 @@
-/* Geography Speedrun f31f5c308c — built from src/js/ by build.js. Edit src/, not this file. */
+/* Geography Speedrun 45603e314b — built from src/js/ by build.js. Edit src/, not this file. */
 (function () {
 'use strict';
-const APP_VERSION = "f31f5c308c";
+const APP_VERSION = "45603e314b";
 /* ---- core: data, answer matching, runs, challenge codes (no DOM; tested by tests/run.js) ---- */
 const DATA = window.GS_DATA.countries;
 const BY_ID = Object.fromEntries(DATA.map((c) => [c.id, c]));
@@ -86,11 +86,12 @@ function rng(seed) {
 function shuffle(arr, r) { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 const pool = (region) => DATA.filter((c) => region === 'world' || c.region === region).map((c) => c.id).sort();
 // The countries in a run: one continent or the world (cfg.region), several continents (cfg.regions), and
-// optionally only N of them picked at random from those (cfg.limit — "Mixed"; the same seed = the same N).
+// optionally only N of them picked at random from those (cfg.limit — "Mixed"). Each game in a run gets its own N
+// (game = its position), so you can't carry the same countries from one game to the next; same seed = same picks.
 const CONTINENTS = ['Africa', 'Asia', 'Europe', 'North America', 'South America', 'Oceania'];
-function cfgPool(cfg) {
+function cfgPool(cfg, game) {
   let ids = cfg.regions && cfg.regions.length ? DATA.filter((c) => cfg.regions.includes(c.region)).map((c) => c.id).sort() : pool(cfg.region);
-  if (cfg.limit && cfg.limit < ids.length) ids = shuffle(ids, rng((cfg.seed * 2654435761 + 97) >>> 0)).slice(0, cfg.limit).sort();
+  if (cfg.limit && cfg.limit < ids.length && game != null) ids = shuffle(ids, rng((cfg.seed * 2654435761 + 97 + game * 7907) >>> 0)).slice(0, cfg.limit).sort();
   return ids;
 }
 const byName = (ids) => ids.slice().sort((a, b) => BY_ID[a].name.localeCompare(BY_ID[b].name));
@@ -118,7 +119,7 @@ function makeBoard(cfg) {
   return cfg.games.map((g, i) => {
     const r = rng((cfg.seed * 31 + i * 7919 + g.length * 104729) >>> 0);
     // A practice run of your misses brings its own list of countries (cfg.custom[game]).
-    const ids = cfg.custom && cfg.custom[g] ? cfg.custom[g].slice().sort() : cfgPool(cfg);
+    const ids = cfg.custom && cfg.custom[g] ? cfg.custom[g].slice().sort() : cfgPool(cfg, i);
     const sec = { game: g, kind: kindOfGame(g), ids: shuffle(ids, r) };
     if (g === 'borders') {
       // Countries with at least one land neighbour in the game; each neighbour is one answer ("de>fr").
@@ -137,7 +138,7 @@ function makeBoard(cfg) {
       sec.ids = pairs;
     } else if (g === 'lang') {
       // Up to 20 official languages of the region's countries; 4 options each (see langOptions).
-      const here = new Set(cfgPool(cfg));
+      const here = new Set(cfgPool(cfg, i));
       // A region with under 10 languages (the Americas) also gets their other sentences, up to 10 rounds.
       const langs = LANGS.filter((l) => l.countries.some((c) => here.has(c)));
       let ids = shuffle(langs.map((l) => l.k), r).slice(0, 20);
@@ -330,7 +331,7 @@ function whereLabel(cfg) {
 }
 function cfgTotal(cfg) { return cfg.kind === 'board' ? makeBoard(cfg).reduce((n, sec) => n + sec.ids.length, 0) : cfg.count; }
 function cfgLabel(cfg) {
-  if (cfg.kind === 'board') return cfg.games.map((g) => gameOf(g).label).join(' + ') + ' · ' + (cfg.custom ? 'My misses' : whereLabel(cfg)) + (cfg.hard ? ' · No borders' : '') + (cfg.langType ? ' · Typed' : '');
+  if (cfg.kind === 'board') return cfg.games.map((g) => gameOf(g).label).join(' + ') + ' · ' + (cfg.custom ? 'My misses' : whereLabel(cfg)) + (cfg.hard ? ' · No borders' : '') + (cfg.langType ? ' · Typed' : '') + (cfg.help ? ' · Spelling help' : '');
   return [modeOf(cfg.mode).label, whereLabel(cfg), cfg.count === cfgPool(cfg).length ? 'All ' + cfg.count : String(cfg.count), styleOf(cfg.style).label].join(' · ') + ' · Quick';
 }
 const bestKey = (cfg) => cfg.kind === 'board' ? ['b', cfg.games.join('+'), cfg.region].join('|') + (optLetters(cfg) ? '|' + optLetters(cfg) : '') : [cfg.mode, cfg.region, cfg.count, cfg.style].join('|') + (optLetters(cfg) ? '|' + optLetters(cfg) : '');
@@ -520,7 +521,7 @@ if (!Array.isArray(S.setup.games) || !S.setup.games.length) S.setup.games = ['fl
 
 /* ---------------- screens ---------------- */
 function home() {
-  liveStop();
+  liveStop(); S.liveNext = null;
   if (S.updateReady && reloadForUpdate(S.updateReady)) return;
   const c = S.challenge;
   mount(h('div', { class: 'app', 'data-screen': 'home' },
@@ -597,6 +598,7 @@ function nameField() {
 
 function setup() {
   const st = S.setup;
+  if (S.liveNext) { st.kind = 'board'; st.group = 'live'; } // picking the next round of an online race
   const save = () => store.set('gs_setup_v2', st);
   const set = (k) => (v) => { st[k] = v; save(); setup(); };
   const regionItems = REGIONS.map((r) => ({ id: r.id, label: r.short || r.label, sub: pool(r.id).length + '' }));
@@ -671,24 +673,25 @@ function setup() {
       st.multi ? h('p', { class: 'small muted' }, st.regions.length ? n + ' countries' : 'Pick at least one') : null);
   }
   mount(h('div', { class: 'app', 'data-screen': 'setup' },
-    topbar('New run', home),
-    h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Style'),
+    S.liveNext ? topbar('Next round · ' + S.liveNext, () => liveBackToRoom()) : topbar('New run', home),
+    S.liveNext ? null : h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Style'),
       seg([{ id: 'board', label: 'Full board', em: '🧩', sub: 'All at once' }, { id: 'quick', label: 'Quick fire', em: '⚡', sub: 'One at a time' }], st.kind, set('kind'), 2)),
     st.kind === 'board' ? gamesCard() : null,
     whereCard(),
     st.kind === 'quick' ? quickCards() : null,
     h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Options'),
       st.kind === 'board' || st.style === 'type' ? optRow('💡 Spelling help', !!st.help, set('help')) : null,
-      st.kind === 'board' ? optRow('🧘 Practice (no clock)', !!st.practice, set('practice')) : null,
+      st.kind === 'board' && st.group !== 'live' ? optRow('🧘 Practice (no clock)', !!st.practice, set('practice')) : null,
       st.kind === 'board' && st.games.some((g) => MAP_GAMES.has(g)) ? optRow('🧱 Map: no borders', !!st.hard, set('hard')) : null,
       st.kind === 'board' && st.games.includes('lang') ? optRow('⌨️ Languages: type it', !!st.langType, set('langType')) : null),
-    h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Who is playing'),
+    S.liveNext ? null : h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Who is playing'),
       seg([{ id: false, label: 'Just me', em: '🙋' }, { id: true, label: 'Pass the phone', em: '👥' }].concat(st.kind === 'board' ? [{ id: 'live', label: 'Online', em: '🌐' }] : []), st.kind === 'quick' && st.group === 'live' ? false : st.group, set('group'), st.kind === 'board' ? 3 : 2),
       st.group === true ? [
         h('div', { class: 'chips' }, S.players.map((p, i) => h('span', { class: 'chip' }, p, h('button', { 'aria-label': 'Remove ' + p, onclick: () => { S.players.splice(i, 1); store.set('gs_players_v1', S.players); setup(); } }, '✕')))),
         h('div', { class: 'row' }, nameInput = h('input', { id: 'pname', class: 'input', placeholder: 'Add a player', maxlength: 24, onkeydown: (e) => { if (e.key === 'Enter') addPlayer(); } }), h('button', { class: 'btn ghost small', style: { flex: '0 0 auto', width: 'auto' }, onclick: addPlayer }, '+ Add')),
       ] : nameField()),
-    st.group === 'live' && st.kind === 'board' ? h('button', { class: 'btn primary', disabled: noWhere, onclick: () => liveCreate(cfgNow()) }, '🌐 Create room') :
+    S.liveNext ? h('button', { class: 'btn primary', disabled: noWhere, onclick: () => liveStartRound(Object.assign(cfgNow(), { help: !!st.help })) }, '▶ Start round ' + ((LIVE.room && LIVE.room.round || 0) + 1)) :
+    st.group === 'live' && st.kind === 'board' ? h('button', { class: 'btn primary', disabled: noWhere, onclick: () => liveCreate(Object.assign(cfgNow(), { help: !!st.help })) }, '🌐 Create room') :
     h('button', {
       class: 'btn primary', disabled: noWhere || (st.group === true && S.players.length < 2),
       onclick: () => startSession(cfgNow(), st.group === true ? S.players.slice() : [S.myName || 'You'], null),
@@ -771,7 +774,8 @@ function startSession(cfg, players, challenge, daily, practice) {
   S.challenge = null;
   // Practice: board runs you started yourself (never a daily or a friend's challenge), or a misses drill.
   const pr = practice != null ? practice : !!S.setup.practice && cfg.kind === 'board' && daily == null && !challenge;
-  S.session = { cfg, players, idx: 0, scores: [], challenge, help: !!S.setup.help, daily: daily != null ? daily : null, practice: pr };
+  // Spelling help: an online room's setting (cfg.help) is the same for everyone in it; otherwise your own switch.
+  S.session = { cfg, players, idx: 0, scores: [], challenge, help: cfg.help != null ? !!cfg.help : !!S.setup.help, daily: daily != null ? daily : null, practice: pr };
   if (cfg.kind === 'board') {
     S.session.board = makeBoard(cfg);
     if (cfg.games.some((g) => g === 'flags' || g === 'flagmap' || g === 'duel')) preloadFlags(cfgPool(cfg));
@@ -2128,13 +2132,15 @@ async function shareRoom(code) {
   try { await navigator.clipboard.writeText(text + '\n' + url); toast('Invite copied'); } catch (e) { copyBox('Send this link', url); }
 }
 // Host: start (or restart) the race 4 seconds from now, for everyone. A new round gets a new order.
-async function liveStartRound() {
+async function liveStartRound(next) {
   const room = LIVE.room; if (!room || room.host !== NET.uid()) return;
+  S.liveNext = null;
   const round = (room.round || 0) + 1;
   const reset = {};
   Object.keys(room.players || {}).forEach((id) => { reset['players/' + id + '/found'] = 0; reset['players/' + id + '/done'] = null; reset['players/' + id + '/time'] = null; reset['players/' + id + '/correct'] = null; reset['players/' + id + '/round'] = round; });
-  const cfg = round === 1 ? room.cfg : Object.assign({}, room.cfg, { seed: newSeed() });
-  await NET.update('rooms/' + LIVE.code, Object.assign(reset, { cfg, round, state: 'play', startAt: NET.now() + 4000 }));
+  // The host's new choice from the setup screen, or the same games with a new order.
+  const cfg = next || (round === 1 ? room.cfg : Object.assign({}, room.cfg, { seed: newSeed() }));
+  await NET.update('rooms/' + LIVE.code, Object.assign(reset, { cfg, round, state: 'play', picking: null, startAt: NET.now() + 4000 }));
 }
 // Everyone: the countdown runs to the shared start time, then the same run starts on every phone.
 function liveBegin(room) {
@@ -2227,18 +2233,37 @@ function h2hCard(ids) {
   return h('div', { class: 'h2h' }, h('p', { class: 'eyebrow' }, '⚔️ Head to head'),
     h('ul', { class: 'pairs' }, rows.map(([, r]) => h('li', null, h('span', null, 'You vs ' + r.name), h('b', { class: 'num ' + (r.w > r.l ? 'up' : r.w < r.l ? 'down' : '') }, r.w + ' – ' + r.l + (r.t ? ' · ' + r.t + 'T' : ''))))));
 }
-// On the results screen: everyone's results, updating as they finish.
+// Host, "Another round": back to the game list to change anything, then Start round (setup's button).
+function liveNextRound() {
+  NET.update('rooms/' + LIVE.code, { picking: true }).catch(() => {});
+  if (LIVE.room && LIVE.room.cfg) {
+    const c = LIVE.room.cfg; Object.assign(S.setup, { kind: 'board', games: c.games.slice(), help: !!c.help, hard: !!c.hard, langType: !!c.langType });
+    if (c.regions) Object.assign(S.setup, { multi: true, regions: c.regions.slice() });
+    else Object.assign(S.setup, { multi: false, region: c.limit ? 'mixed' : c.region }, c.limit ? { mixN: c.limit } : {});
+  }
+  S.liveNext = LIVE.code; setup();
+}
+// Back out of picking: to the room's lobby (where the host can also just start the same games again).
+function liveBackToRoom() {
+  const code = S.liveNext; S.liveNext = null;
+  NET.update('rooms/' + code, { picking: null }).catch(() => {});
+  liveLobby(code);
+}
+// On the results screen: everyone's results, updating as they finish. Players still playing show no score
+// (you only see how they did once they've finished).
 function liveResults() {
   const box = h('div', { class: 'card sky' });
   const draw = (room) => {
     if (!room) return;
-    const st = liveStandings(room), host = room.host === NET.uid(), waiting = st.filter((p) => !p.done).length;
+    const all = liveStandings(room), host = room.host === NET.uid(), waiting = all.filter((p) => !p.done).length;
+    const st = all.filter((p) => p.done).concat(all.filter((p) => !p.done).sort((a, b) => a.name.localeCompare(b.name)));
     box.replaceChildren(h('p', { class: 'eyebrow' }, '🌐 Room ' + LIVE.code + (waiting ? ' · ' + waiting + ' still playing' : '')),
-      h('ul', { class: 'list board' }, st.map((p, i) => h('li', { class: i === 0 && p.done ? 'first' : null }, h('span', { class: 'rank' }, String(i + 1)),
-        h('div', { class: 'q' }, p.name + (p.id === NET.uid() ? ' (you)' : ''), h('small', null, p.done ? p.correct + '/' + p.total + ' found' : 'playing · ' + p.found + '/' + p.total)),
+      h('ul', { class: 'list board' }, st.map((p, i) => h('li', { class: i === 0 && p.done ? 'first' : null }, h('span', { class: 'rank' }, p.done ? String(i + 1) : '–'),
+        h('div', { class: 'q' }, p.name + (p.id === NET.uid() ? ' (you)' : ''), h('small', null, p.done ? p.correct + '/' + p.total + ' found' : 'still playing…')),
         h('div', { class: 't' }, p.done ? fmtTime(p.time) : '…')))),
-      (h2hRecord(room), h2hCard(st.map((p) => p.id))),
-      host ? h('button', { class: 'btn primary small', onclick: () => liveStartRound() }, '🔁 Another round') : h('p', { class: 'small muted center' }, 'The host can start another round'));
+      ...[(h2hRecord(room), h2hCard(st.map((p) => p.id)))].filter(Boolean),
+      host ? h('button', { class: 'btn primary small', onclick: liveNextRound }, '🔁 Another round')
+        : h('p', { class: 'small muted center' }, room.picking ? 'The host is picking the next round…' : 'The host can start another round'));
   };
   if (LIVE.room) draw(LIVE.room);
   if (LIVE.unwatch) LIVE.unwatch();

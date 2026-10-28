@@ -216,13 +216,15 @@ async function shareRoom(code) {
   try { await navigator.clipboard.writeText(text + '\n' + url); toast('Invite copied'); } catch (e) { copyBox('Send this link', url); }
 }
 // Host: start (or restart) the race 4 seconds from now, for everyone. A new round gets a new order.
-async function liveStartRound() {
+async function liveStartRound(next) {
   const room = LIVE.room; if (!room || room.host !== NET.uid()) return;
+  S.liveNext = null;
   const round = (room.round || 0) + 1;
   const reset = {};
   Object.keys(room.players || {}).forEach((id) => { reset['players/' + id + '/found'] = 0; reset['players/' + id + '/done'] = null; reset['players/' + id + '/time'] = null; reset['players/' + id + '/correct'] = null; reset['players/' + id + '/round'] = round; });
-  const cfg = round === 1 ? room.cfg : Object.assign({}, room.cfg, { seed: newSeed() });
-  await NET.update('rooms/' + LIVE.code, Object.assign(reset, { cfg, round, state: 'play', startAt: NET.now() + 4000 }));
+  // The host's new choice from the setup screen, or the same games with a new order.
+  const cfg = next || (round === 1 ? room.cfg : Object.assign({}, room.cfg, { seed: newSeed() }));
+  await NET.update('rooms/' + LIVE.code, Object.assign(reset, { cfg, round, state: 'play', picking: null, startAt: NET.now() + 4000 }));
 }
 // Everyone: the countdown runs to the shared start time, then the same run starts on every phone.
 function liveBegin(room) {
@@ -315,18 +317,37 @@ function h2hCard(ids) {
   return h('div', { class: 'h2h' }, h('p', { class: 'eyebrow' }, '⚔️ Head to head'),
     h('ul', { class: 'pairs' }, rows.map(([, r]) => h('li', null, h('span', null, 'You vs ' + r.name), h('b', { class: 'num ' + (r.w > r.l ? 'up' : r.w < r.l ? 'down' : '') }, r.w + ' – ' + r.l + (r.t ? ' · ' + r.t + 'T' : ''))))));
 }
-// On the results screen: everyone's results, updating as they finish.
+// Host, "Another round": back to the game list to change anything, then Start round (setup's button).
+function liveNextRound() {
+  NET.update('rooms/' + LIVE.code, { picking: true }).catch(() => {});
+  if (LIVE.room && LIVE.room.cfg) {
+    const c = LIVE.room.cfg; Object.assign(S.setup, { kind: 'board', games: c.games.slice(), help: !!c.help, hard: !!c.hard, langType: !!c.langType });
+    if (c.regions) Object.assign(S.setup, { multi: true, regions: c.regions.slice() });
+    else Object.assign(S.setup, { multi: false, region: c.limit ? 'mixed' : c.region }, c.limit ? { mixN: c.limit } : {});
+  }
+  S.liveNext = LIVE.code; setup();
+}
+// Back out of picking: to the room's lobby (where the host can also just start the same games again).
+function liveBackToRoom() {
+  const code = S.liveNext; S.liveNext = null;
+  NET.update('rooms/' + code, { picking: null }).catch(() => {});
+  liveLobby(code);
+}
+// On the results screen: everyone's results, updating as they finish. Players still playing show no score
+// (you only see how they did once they've finished).
 function liveResults() {
   const box = h('div', { class: 'card sky' });
   const draw = (room) => {
     if (!room) return;
-    const st = liveStandings(room), host = room.host === NET.uid(), waiting = st.filter((p) => !p.done).length;
+    const all = liveStandings(room), host = room.host === NET.uid(), waiting = all.filter((p) => !p.done).length;
+    const st = all.filter((p) => p.done).concat(all.filter((p) => !p.done).sort((a, b) => a.name.localeCompare(b.name)));
     box.replaceChildren(h('p', { class: 'eyebrow' }, '🌐 Room ' + LIVE.code + (waiting ? ' · ' + waiting + ' still playing' : '')),
-      h('ul', { class: 'list board' }, st.map((p, i) => h('li', { class: i === 0 && p.done ? 'first' : null }, h('span', { class: 'rank' }, String(i + 1)),
-        h('div', { class: 'q' }, p.name + (p.id === NET.uid() ? ' (you)' : ''), h('small', null, p.done ? p.correct + '/' + p.total + ' found' : 'playing · ' + p.found + '/' + p.total)),
+      h('ul', { class: 'list board' }, st.map((p, i) => h('li', { class: i === 0 && p.done ? 'first' : null }, h('span', { class: 'rank' }, p.done ? String(i + 1) : '–'),
+        h('div', { class: 'q' }, p.name + (p.id === NET.uid() ? ' (you)' : ''), h('small', null, p.done ? p.correct + '/' + p.total + ' found' : 'still playing…')),
         h('div', { class: 't' }, p.done ? fmtTime(p.time) : '…')))),
-      (h2hRecord(room), h2hCard(st.map((p) => p.id))),
-      host ? h('button', { class: 'btn primary small', onclick: () => liveStartRound() }, '🔁 Another round') : h('p', { class: 'small muted center' }, 'The host can start another round'));
+      ...[(h2hRecord(room), h2hCard(st.map((p) => p.id)))].filter(Boolean),
+      host ? h('button', { class: 'btn primary small', onclick: liveNextRound }, '🔁 Another round')
+        : h('p', { class: 'small muted center' }, room.picking ? 'The host is picking the next round…' : 'The host can start another round'));
   };
   if (LIVE.room) draw(LIVE.room);
   if (LIVE.unwatch) LIVE.unwatch();

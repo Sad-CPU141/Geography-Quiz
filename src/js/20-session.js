@@ -21,7 +21,8 @@ function startSession(cfg, players, challenge, daily, practice) {
   S.challenge = null;
   // Practice: board runs you started yourself (never a daily or a friend's challenge), or a misses drill.
   const pr = practice != null ? practice : !!S.setup.practice && cfg.kind === 'board' && daily == null && !challenge;
-  S.session = { cfg, players, idx: 0, scores: [], challenge, help: !!S.setup.help, daily: daily != null ? daily : null, practice: pr };
+  // Spelling help: an online room's setting (cfg.help) is the same for everyone in it; otherwise your own switch.
+  S.session = { cfg, players, idx: 0, scores: [], challenge, help: cfg.help != null ? !!cfg.help : !!S.setup.help, daily: daily != null ? daily : null, practice: pr };
   if (cfg.kind === 'board') {
     S.session.board = makeBoard(cfg);
     if (cfg.games.some((g) => g === 'flags' || g === 'flagmap' || g === 'duel')) preloadFlags(cfgPool(cfg));
