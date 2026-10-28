@@ -22,13 +22,13 @@ let fails = 0; const ok = (c, m) => { if (!c) { fails++; console.log('FAIL: ' + 
 const SIZES = [['phone', 360, 780], ['laptop', 1366, 768], ['tv', 1920, 1080]];
 const only = process.argv[2];
 // Game labels as shown in setup ("Map: name it" before "Map" so has-text matches the right row).
-const ALL_GAMES = ['Flags', 'Map', 'Capitals', 'Shapes', 'Reverse Capitals', 'Map: name it', 'Borders', 'Flag → Map', 'Bigger country'];
+const ALL_GAMES = ['Flags', 'Map', 'Capitals', 'Shapes', 'Reverse Capitals', 'Map: name it', 'Borders', 'Flag → Map', 'Bigger country', 'Guess the language'];
 
 async function noSideScroll(page, label) {
   const w = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
   ok(w[0] <= w[1], label + ': no sideways scroll (' + w[0] + ' ≤ ' + w[1] + ')');
 }
-const GAME_ID = { 'Flags': 'flags', 'Map': 'map', 'Capitals': 'capitals', 'Shapes': 'shapes', 'Reverse Capitals': 'revcap', 'Map: name it': 'mapname', 'Borders': 'borders', 'Flag → Map': 'flagmap', 'Bigger country': 'duel' };
+const GAME_ID = { 'Flags': 'flags', 'Map': 'map', 'Capitals': 'capitals', 'Shapes': 'shapes', 'Reverse Capitals': 'revcap', 'Map: name it': 'mapname', 'Borders': 'borders', 'Flag → Map': 'flagmap', 'Bigger country': 'duel', 'Guess the language': 'lang' };
 async function setupBoard(page, labels, region) {
   const games = labels.map((l) => GAME_ID[l]);
   await page.click('button:has-text("▶ New run")'); await page.waitForSelector('.seg');
@@ -220,6 +220,72 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     ok(errors.length === 0, label + ': no page errors ' + JSON.stringify(errors));
     await ctx.close();
   }
+
+  // Guess the language (phone + TV): first round picked wrong (shows the right one), the rest right; results list
+  // the miss with its sentence; the rare-script font is there; then North America gets 10 rounds.
+  for (const [W, H] of only && only !== 'lang' ? [] : [[360, 780], [1920, 1080]]) {
+    const ctx = await b.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: W < 500 ? 2 : 1 });
+    const page = await ctx.newPage();
+    const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(BASE);
+    await setupBoard(page, ['Guess the language'], 'World');
+    await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")');
+    await page.waitForSelector('.lang-pick');
+    await noSideScroll(page, 'lang ' + W);
+    await page.screenshot({ path: path.join(outDir, 'lang-' + W + '.png') });
+    let first = true;
+    for (let k = 0; k < 25; k++) {
+      await page.waitForSelector('.lang-pick:not(.right):not(.wrong):not(.other), .result-time', { timeout: 4000 }).catch(() => {});
+      if (!(await page.$('.lang-pick'))) break;
+      const [right, wrong, dir, want] = await page.evaluate(() => {
+        const q = document.querySelector('.lang-text'), ids = [...document.querySelectorAll('.lang-pick')].map((b) => b.dataset.id);
+        const r = ids.find((k) => [window.GS.LANG_BY[k].text, ...window.GS.LANG_BY[k].more].includes(q.textContent));
+        return [r, ids.find((k) => k !== r), q.getAttribute('dir'), r && window.GS.LANG_BY[r].dir];
+      });
+      ok(right && dir === want, 'lang: sentence matches one option, direction ' + right + ' ' + dir);
+      if (first) {
+        await page.keyboard.press(String(await page.evaluate((w) => [...document.querySelectorAll('.lang-pick')].findIndex((b) => b.dataset.id === w) + 1, wrong)));
+        await page.waitForSelector('.lang-pick.wrong'); await page.waitForTimeout(100);
+        ok(await page.$('.lang-pick.right[data-id="' + right + '"]') !== null, 'lang: a wrong pick shows the right one');
+        if (W < 500) await page.screenshot({ path: path.join(outDir, 'lang-wrong.png') });
+        first = false;
+      } else await page.click('.lang-pick[data-id="' + right + '"]');
+      await page.waitForTimeout(W < 500 ? 750 : 720);
+    }
+    await page.waitForSelector('.result-time', { timeout: 6000 });
+    ok((await page.textContent('.stat b')).trim() === '19/20', 'lang: 19/20 after one wrong pick');
+    ok(await page.$$eval('.langlist li', (l) => l.length) === 1, 'lang: results list the one miss with its sentence');
+    await page.screenshot({ path: path.join(outDir, 'lang-result-' + W + '.png'), fullPage: true });
+    // Every script shows with a real font (Tamazight, Dhivehi, Dzongkha… fall back to the self-hosted Noto fonts).
+    const missing = await page.evaluate(async () => {
+      const out = [];
+      for (const l of window.GS.LANGS) {
+        if (!['Thaana', 'Tifinagh', 'Tibetan', 'Ethiopic', 'Myanmar', 'Khmer', 'Thai/Lao', 'Georgian', 'Armenian'].includes(l.script)) continue;
+        await document.fonts.load("400 24px 'GS Scripts'", l.text);
+        if (l.k !== 'tha' && !document.fonts.check("400 24px 'GS Scripts'", l.text)) out.push(l.k);
+      }
+      return out;
+    });
+    ok(missing.length === 0, 'lang: rare-script fonts load ' + missing.join());
+    if (W < 500) {
+      // A sample of every rare script on screen, for a look.
+      await page.evaluate(() => {
+        const box = document.createElement('div'); box.className = 'app'; box.style.cssText = 'display:flex;flex-direction:column;gap:6px';
+        ['ber', 'div', 'dzo', 'amh', 'mya', 'khm', 'lao', 'sin', 'kat', 'hye', 'zho', 'jpn', 'ara'].forEach((k) => { const q = document.createElement('blockquote'); q.className = 'lang-small'; q.dir = window.GS.LANG_BY[k].dir; q.textContent = k + ': ' + window.GS.LANG_BY[k].text; box.append(q); });
+        document.body.replaceChildren(box);
+      });
+      await page.waitForTimeout(500);
+      await page.screenshot({ path: path.join(outDir, 'lang-scripts.png'), fullPage: true });
+      // North America: only 4 official languages, so their other sentences fill it up to 10 rounds.
+      await page.goto(BASE);
+      await setupBoard(page, ['Guess the language'], 'N. America');
+      await page.click('button:has-text("Start")');
+      ok(/Guess the language 10/.test(await page.textContent('.cover')), 'lang: North America has 10 rounds');
+    }
+    ok(errors.length === 0, 'lang ' + W + ': no page errors ' + JSON.stringify(errors));
+    await ctx.close();
+  }
+  if (only === 'lang') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }
 
   // The 5 "More games" in one combined run (South America, phone): Reverse Capitals → Borders → Bigger country
   // → Flag → Map → Map: name it. Everything answered right, so it should end 100%.

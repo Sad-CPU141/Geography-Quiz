@@ -1,4 +1,4 @@
-/* Geography Speedrun 5895e0ec36 — built from src/styles.css */
+/* Geography Speedrun 3a09d12966 — built from src/styles.css */
 /* Geography Speedrun — the "game night" family look (Draft Night, Khatfa, Jeopardy-Board): ink/purple stage,
    gold accents, condensed headings. This game's own accent is sky blue. Fonts are self-hosted (SIL OFL). */
 @font-face{font-family:'Anton';font-weight:400;font-display:swap;src:url(fonts/anton-latin-400-normal.woff2) format('woff2')}
@@ -6,6 +6,17 @@
 @font-face{font-family:'Barlow';font-weight:700;font-display:swap;src:url(fonts/barlow-latin-700-normal.woff2) format('woff2')}
 @font-face{font-family:'Barlow Semi Condensed';font-weight:700;font-display:swap;src:url(fonts/barlow-semi-condensed-latin-700-normal.woff2) format('woff2')}
 @font-face{font-family:'Barlow Semi Condensed';font-weight:800;font-display:swap;src:url(fonts/barlow-semi-condensed-latin-800-normal.woff2) format('woff2')}
+/* Guess the language: Noto fonts for scripts some devices lack (only downloaded when such text is on screen). */
+@font-face{font-family:'GS Scripts';font-weight:400;font-display:swap;unicode-range:U+0780-07BF;src:url(fonts/noto-sans-thaana-thaana-400-normal.woff2) format('woff2')}
+@font-face{font-family:'GS Scripts';font-weight:400;font-display:swap;unicode-range:U+2D30-2D7F;src:url(fonts/noto-sans-tifinagh-tifinagh-400-normal.woff2) format('woff2')}
+@font-face{font-family:'GS Scripts';font-weight:400;font-display:swap;unicode-range:U+0F00-0FFF;src:url(fonts/noto-serif-tibetan-tibetan-400-normal.woff2) format('woff2')}
+@font-face{font-family:'GS Scripts';font-weight:400;font-display:swap;unicode-range:U+1200-139F,U+2D80-2DDF;src:url(fonts/noto-sans-ethiopic-ethiopic-400-normal.woff2) format('woff2')}
+@font-face{font-family:'GS Scripts';font-weight:400;font-display:swap;unicode-range:U+1000-109F;src:url(fonts/noto-sans-myanmar-myanmar-400-normal.woff2) format('woff2')}
+@font-face{font-family:'GS Scripts';font-weight:400;font-display:swap;unicode-range:U+1780-17FF,U+19E0-19FF;src:url(fonts/noto-sans-khmer-khmer-400-normal.woff2) format('woff2')}
+@font-face{font-family:'GS Scripts';font-weight:400;font-display:swap;unicode-range:U+0E80-0EFF;src:url(fonts/noto-sans-lao-lao-400-normal.woff2) format('woff2')}
+@font-face{font-family:'GS Scripts';font-weight:400;font-display:swap;unicode-range:U+0D80-0DFF;src:url(fonts/noto-sans-sinhala-sinhala-400-normal.woff2) format('woff2')}
+@font-face{font-family:'GS Scripts';font-weight:400;font-display:swap;unicode-range:U+0530-058F;src:url(fonts/noto-sans-armenian-armenian-400-normal.woff2) format('woff2')}
+@font-face{font-family:'GS Scripts';font-weight:400;font-display:swap;unicode-range:U+10A0-10FF,U+1C90-1CBF;src:url(fonts/noto-sans-georgian-georgian-400-normal.woff2) format('woff2')}
 
 :root{
   --ink:#0f0c21; --panel:#221d47; --panel2:#2c2659; --line:#3d3672;
@@ -331,6 +342,12 @@ body.fullscreen{overflow:hidden}
 .duel-pick.right{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 22%,var(--panel))}
 .duel-pick.wrong{border-color:var(--danger);background:color-mix(in srgb,var(--danger) 22%,var(--panel))}
 .duel-pick.other{opacity:.8}
+.lang-text{margin:0;padding:18px 20px;border-radius:18px;background:var(--panel2);border:2px solid var(--line);font-family:'Barlow','GS Scripts',system-ui,sans-serif;font-weight:600;font-size:clamp(20px,2.6vw,30px);line-height:1.45;text-align:center;overflow-wrap:anywhere}
+.lang-opts{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.lang-pick{min-height:76px;padding:12px 10px}
+.langlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.langlist li{display:flex;flex-direction:column;gap:2px;padding:8px 12px;border-radius:12px;background:var(--panel)}
+.lang-small{margin:0;font-family:'Barlow','GS Scripts',system-ui,sans-serif;font-size:15px;color:var(--muted);line-height:1.4;overflow-wrap:anywhere}
 .more-toggle{display:flex;justify-content:space-between;align-items:center;width:100%;padding:10px 12px;border-radius:14px;border:2px dashed var(--line);background:none;font-family:var(--cond);font-weight:800;font-size:17px;color:var(--text)}
 .more-toggle small{font-family:var(--body);font-size:13px;color:var(--muted);font-weight:600}
 /* Daily run card */

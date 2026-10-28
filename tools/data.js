@@ -127,13 +127,10 @@ const KEEP_ALL = new Set(['ID', 'PH', 'JP', 'GR', 'HR', 'MV', 'BS', 'SB', 'VU', 
 //  · Kyrgyzstan: new flag from December 2023 (straight sun rays), 5:3.
 //  · Syria: the green-white-black flag with three red stars, in official use since 2025, 3:2.
 const fromFlagIcons = (cc) => fs.readFileSync(nm('flag-icons/flags/4x3/' + cc + '.svg'), 'utf8').replace(/^[\s\S]*?<svg[^>]*>/, '').replace(/<\/svg>\s*$/, '').replace(/\s+id="flag-icons-[a-z-]+"/, '');
-//  · Afghanistan: the owner chose the white flag (black Shahada on white, 1:2), in use since August 2021. Drawn here;
-//    the inscription is text, so it uses the device's Arabic font.
+//  · Afghanistan: the owner chose the white flag (black Shahada on white, 1:2), in use since August 2021. Drawn by
+//    tools/afghan-flag.mjs as shapes (calligraphic Amiri Bold outlines), so it looks the same on every device.
 const NEWER_FLAGS = {
-  AF: () => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 500"><rect width="1000" height="500" fill="#fff"/>' +
-    '<text x="500" y="285" text-anchor="middle" font-size="96" textLength="780" lengthAdjust="spacingAndGlyphs" fill="#000" ' +
-    'font-family="Amiri, \'Noto Naskh Arabic\', \'Geeza Pro\', \'Traditional Arabic\', \'Arabic Typesetting\', \'Times New Roman\', serif" direction="rtl">' +
-    'لا إله إلا الله محمد رسول الله</text></svg>',
+  AF: () => fs.readFileSync(path.join(root, 'tools/flags/af.svg'), 'utf8'), // drawn by tools/afghan-flag.mjs
   KG: () => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 480"><rect width="800" height="480" fill="#e8112d"/><g transform="translate(80 0)">' + fromFlagIcons('kg').replace(/fill="red"/g, 'fill="#e8112d"').replace(/fill="#ff0"/g, 'fill="#ffef00"') + '</g></svg>',
   SY: () => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 480"><rect width="720" height="480"/><rect width="720" height="320" fill="#fff"/><rect width="720" height="160" fill="#007a3d"/><g transform="translate(40 0)">' + fromFlagIcons('sy').replace(/<path d="M0 0h640v480H0Z"\/>|<path fill="#fff" d="M0 0h640v320H0Z"\/>|<path fill="#007a3d" d="M0 0h640v160H0Z"\/>/g, '') + '</g></svg>',
 };

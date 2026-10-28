@@ -1,6 +1,12 @@
 /* ---- core: data, answer matching, runs, challenge codes (no DOM; tested by tests/run.js) ---- */
 const DATA = window.GS_DATA.countries;
 const BY_ID = Object.fromEntries(DATA.map((c) => [c.id, c]));
+// Guess the language data (src/langs.js, from tools/langs.mjs).
+const LANGS = window.GS_LANGS || [];
+const LANG_BY = Object.fromEntries(LANGS.map((l) => [l.k, l]));
+// A round is a language key ("ara") or, for its extra sentences, "ara~1" / "ara~2".
+const langOf = (id) => LANG_BY[id.split('~')[0]];
+const langText = (id) => { const [k, n] = id.split('~'); return n ? LANG_BY[k].more[n - 1] : LANG_BY[k].text; };
 
 /* Two kinds of run:
    · board: the JetPunk / Seterra style. One or more games played back to back on one clock:
@@ -17,6 +23,7 @@ const GAMES = [
   { id: 'borders', label: 'Borders', em: '🧱', desc: 'Name the neighbours', more: true },
   { id: 'flagmap', label: 'Flag → Map', em: '📍', desc: 'Flag → tap the country', more: true },
   { id: 'duel', label: 'Bigger country', em: '⚖️', desc: 'Pick the bigger one', more: true },
+  { id: 'lang', label: 'Guess the language', em: '🗣️', desc: 'Name the language', more: true },
 ];
 const MAP_GAMES = new Set(['map', 'mapname', 'flagmap']);
 const MODES = [
@@ -58,7 +65,7 @@ function isRight(id, kind, typed) {
   return set.has(n) || set.has(n.replace(/^cityof/, '').replace(/city$/, ''));
 }
 const answerText = (id, kind) => kind === 'capital' ? BY_ID[id].capital : BY_ID[id].name;
-const kindOfGame = (g) => g === 'capitals' ? 'capital' : g === 'shapes' ? 'shape' : MAP_GAMES.has(g) ? 'map' : g === 'revcap' || g === 'borders' ? 'country' : g === 'duel' ? 'duel' : 'flag';
+const kindOfGame = (g) => g === 'capitals' ? 'capital' : g === 'shapes' ? 'shape' : MAP_GAMES.has(g) ? 'map' : g === 'revcap' || g === 'borders' ? 'country' : g === 'duel' ? 'duel' : g === 'lang' ? 'lang' : 'flag';
 
 /* ---------------- seeded random ---------------- */
 function rng(seed) {
@@ -109,9 +116,34 @@ function makeBoard(cfg) {
         pairs.push(r() < 0.5 ? a + '|' + b : b + '|' + a);
       }
       sec.ids = pairs;
+    } else if (g === 'lang') {
+      // Up to 20 official languages of the region's countries; 4 options each (see langOptions).
+      const here = new Set(pool(cfg.region));
+      // A region with under 10 languages (the Americas) also gets their other sentences, up to 10 rounds.
+      const langs = LANGS.filter((l) => l.countries.some((c) => here.has(c)));
+      let ids = shuffle(langs.map((l) => l.k), r).slice(0, 20);
+      if (ids.length < 10) ids = ids.concat(shuffle(langs.flatMap((l) => l.more.map((t, n) => l.k + '~' + (n + 1))), r).slice(0, 10 - ids.length));
+      sec.ids = shuffle(ids, r);
+      sec.opts = {};
+      sec.ids.forEach((id) => { sec.opts[id] = langOptions(id.split('~')[0], here, r); });
     }
     return sec;
   });
+}
+// Guess the language: the right one + 3 wrong ones. Wrong ones in the same writing when possible (Arabic vs Persian vs
+// Urdu, not Arabic vs French), up to 2 of the region's languages first; never one that's almost the same language (`close`).
+function langOptions(k, here, r) {
+  const L = LANG_BY[k], bad = new Set([k].concat(L.close || []));
+  const ok = LANGS.filter((x) => !bad.has(x.k));
+  // "Near" = spoken in the run's region and on the same continent as the answer (so Latin gets Italian or Romanian
+  // rather than Zulu on a World run).
+  const conts = new Set(L.countries.map((c) => BY_ID[c].region));
+  const near = (x) => x.countries.some((c) => here.has(c) && conts.has(BY_ID[c].region));
+  const tiers = [shuffle(ok.filter((x) => x.script === L.script && near(x)), r).slice(0, 2), ok.filter((x) => x.script === L.script),
+    L.script === 'Latin' ? [] : ok.filter((x) => x.script !== 'Latin' && x.script !== L.script), ok];
+  const out = [];
+  tiers.forEach((t) => shuffle(t.map((x) => x.k), r).forEach((x) => { if (out.length < 3 && !out.includes(x) && !out.some((o) => (LANG_BY[o].close || []).includes(x))) out.push(x); }));
+  return shuffle([k].concat(out), r);
 }
 // The right answer for a duel round "a|b": whichever is bigger.
 const duelWinner = (key) => { const [a, b] = key.split('|'); return BY_ID[a].area > BY_ID[b].area ? a : b; };
@@ -323,5 +355,5 @@ function dailyCfg(day) {
 }
 const dayLabel = (day) => new Date(day * 86400000).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
 
-window.GS = { recordMisses, topMisses, todayNum, dailyCfg, duelWinner, GAMES, suggest, editDistance, norm, isRight, answersFor, makeRun, makeBoard, encodeCode, decodeCode, fmtTime, pool, rng, better, compare, GAME_ORDERS, cfgLabel, DATA };
+window.GS = { LANGS, LANG_BY, langOf, langText, recordMisses, topMisses, todayNum, dailyCfg, duelWinner, GAMES, suggest, editDistance, norm, isRight, answersFor, makeRun, makeBoard, encodeCode, decodeCode, fmtTime, pool, rng, better, compare, GAME_ORDERS, cfgLabel, DATA };
 if (window.GS_NO_UI) return;

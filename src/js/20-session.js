@@ -115,7 +115,7 @@ function playSection(R) {
     giveUp: () => giveUpDialog(R, api),
     quit: () => { if (confirm('Stop this run? It won\'t count.')) { R.clock.over = true; home(); } },
   };
-  api.ui = MAP_GAMES.has(sec.game) ? mapGame(api) : sec.game === 'borders' ? bordersGame(api) : sec.game === 'duel' ? duelGame(api) : gridGame(api);
+  api.ui = MAP_GAMES.has(sec.game) ? mapGame(api) : sec.game === 'borders' ? bordersGame(api) : sec.game === 'duel' ? duelGame(api) : sec.game === 'lang' ? langGame(api) : gridGame(api);
 }
 function giveUpDialog(R, api) {
   const se = S.session, more = R.sec < se.board.length - 1;

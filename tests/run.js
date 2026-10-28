@@ -2,6 +2,7 @@
 const path = require('path');
 global.window = { GS_NO_UI: true };
 require(path.join(__dirname, '../src/data.js'));
+require(path.join(__dirname, '../src/langs.js'));
 require(path.join(__dirname, '../app.js')); // built file: run `npm run build` first
 const GS = window.GS;
 let pass = 0, fail = 0;
@@ -17,7 +18,7 @@ const ratio = (id) => GS.DATA.find((c) => c.id === id).ratio;
   .forEach(([id, r]) => ok(Math.abs(ratio(id) - r) < 0.01, 'flag proportions ' + id + ' = ' + r + ' (got ' + ratio(id) + ')'));
 ok(ratio('mc') !== ratio('id'), 'Monaco and Indonesia flags differ in shape');
 const afFlag = require('fs').readFileSync(path.join(__dirname, '..', GS.DATA.find((c) => c.id === 'af').flag), 'utf8');
-ok(ratio('af') === 2 && /fill="#fff"/.test(afFlag) && afFlag.includes('محمد رسول الله'), 'Afghanistan: the white flag with the Shahada (owner\'s choice), 1:2');
+ok(ratio('af') === 2 && /fill="#fff"/.test(afFlag) && /<path /.test(afFlag) && !/<text/.test(afFlag), 'Afghanistan: the white flag with the Shahada drawn as shapes (owner\'s choice), 1:2');
 GS.DATA.forEach((c) => { ok(c.shape && c.shape.length > 20, 'outline for ' + c.name); ok(c.flag && /^flags\/[0-9a-f]{12}\.svg$/.test(c.flag), 'flag file for ' + c.name); ok(c.capital, 'capital for ' + c.name); });
 const counts = {}; GS.DATA.forEach((c) => { counts[c.region] = (counts[c.region] || 0) + 1; });
 ok(Object.values(counts).reduce((a, b) => a + b) === 196, 'regions add up');
@@ -101,6 +102,30 @@ const seen = new Set(); let fair = true;
 dd.ids.forEach((k) => { const [a, b] = k.split('|'); seen.add(a); seen.add(b); const A = GS.DATA.find((c) => c.id === a).area, B = GS.DATA.find((c) => c.id === b).area; if (Math.abs(A - B) <= 0.1 * Math.max(A, B)) fair = false; });
 ok(fair && seen.size === 40, 'duel: clear winners, 40 different countries');
 ok(GS.duelWinner('ru|ca') === 'ru' && GS.duelWinner('mc|va') === 'mc', 'duel winner by area');
+// Guess the language: 20 rounds of the region's official languages, 4 different options, fair wrong options.
+const LB = GS.LANG_BY;
+ok(GS.LANGS.length > 100 && ['ara', 'zho', 'eng', 'spa', 'hin', 'rus', 'jpn', 'swa', 'fra', 'por'].every((k) => LB[k]), 'languages: the big ones are there');
+ok(GS.LANGS.every((l) => [l.text, ...l.more].every((t) => t.length > 15 && t.length < 200 && !/[\[\]<>]|&\w+;/.test(t))), 'language sentences are clean and short');
+ok(LB.ara.dir === 'rtl' && LB.urd.dir === 'rtl' && LB.div.script === 'Thaana' && LB.eng.dir === 'ltr', 'right-to-left and scripts');
+ok(LB.tha.text.includes('เกียรติศักดิ์'), 'Thai editorial correction applied');
+['world', 'Europe', 'Africa', 'Asia', 'North America', 'South America', 'Oceania'].forEach((reg) => {
+  for (let s = 1; s < 30; s++) {
+    const sec = GS.makeBoard({ kind: 'board', games: ['lang'], region: reg, seed: s * 131 })[0];
+    const here = new Set(GS.pool(reg));
+    const good = sec.ids.length >= 10 && sec.ids.length <= 20 && new Set(sec.ids).size === sec.ids.length && sec.ids.every((id) => GS.langOf(id).countries.some((c) => here.has(c)) && GS.langText(id)) &&
+      sec.ids.every((id) => { const k = GS.langOf(id).k, o = sec.opts[id]; return o.length === 4 && new Set(o).size === 4 && o.includes(k) && !o.some((x) => (LB[k].close || []).includes(x)); });
+    ok(good, 'lang board ' + reg + ' seed ' + s);
+  }
+});
+const lw = GS.makeBoard({ kind: 'board', games: ['lang'], region: 'world', seed: 5 })[0];
+ok(lw.ids.length === 20, 'lang: 20 rounds on the world');
+const na = GS.makeBoard({ kind: 'board', games: ['lang'], region: 'North America', seed: 3 })[0];
+ok(na.ids.length === 10 && ['eng', 'fra', 'spa', 'hat'].every((k) => na.ids.includes(k)), 'lang: North America (4 languages) gets 10 rounds, every language at least once');
+ok(new Set(GS.makeBoard({ kind: 'board', games: ['lang'], region: 'North America', seed: 8 })[0].ids.map((id) => [...GS.makeBoard({ kind: 'board', games: ['lang'], region: 'North America', seed: 8 })[0].opts[id]].sort().join())).size > 1, 'lang: options vary in a small region');
+ok(lw.ids.filter((k) => LB[k].script !== 'Latin').every((k) => lw.opts[k].every((o) => LB[o].script !== 'Latin')) && lw.ids.every((k) => !k.includes('~')), 'lang: non-Latin sentences get non-Latin options');
+ok(JSON.stringify(GS.makeBoard({ kind: 'board', games: ['lang'], region: 'Asia', seed: 9 })) === JSON.stringify(GS.makeBoard({ kind: 'board', games: ['lang'], region: 'Asia', seed: 9 })), 'lang: same seed, same run');
+const lc = { kind: 'board', games: ['lang', 'flags'], region: 'Africa', seed: 4242 };
+ok(JSON.stringify(GS.decodeCode(GS.encodeCode(lc))) === JSON.stringify(lc), 'lang: challenge code round trip');
 // Daily run: same all day, different tomorrow, always two games and a continent.
 const d1 = GS.dailyCfg(20388), d2 = GS.dailyCfg(20388), d3 = GS.dailyCfg(20389);
 ok(JSON.stringify(d1) === JSON.stringify(d2) && JSON.stringify(d1) !== JSON.stringify(d3), 'daily: same day same run, next day different');

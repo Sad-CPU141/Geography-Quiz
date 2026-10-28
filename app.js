@@ -1,10 +1,16 @@
-/* Geography Speedrun 5895e0ec36 — built from src/js/ by build.js. Edit src/, not this file. */
+/* Geography Speedrun 3a09d12966 — built from src/js/ by build.js. Edit src/, not this file. */
 (function () {
 'use strict';
-const APP_VERSION = "5895e0ec36";
+const APP_VERSION = "3a09d12966";
 /* ---- core: data, answer matching, runs, challenge codes (no DOM; tested by tests/run.js) ---- */
 const DATA = window.GS_DATA.countries;
 const BY_ID = Object.fromEntries(DATA.map((c) => [c.id, c]));
+// Guess the language data (src/langs.js, from tools/langs.mjs).
+const LANGS = window.GS_LANGS || [];
+const LANG_BY = Object.fromEntries(LANGS.map((l) => [l.k, l]));
+// A round is a language key ("ara") or, for its extra sentences, "ara~1" / "ara~2".
+const langOf = (id) => LANG_BY[id.split('~')[0]];
+const langText = (id) => { const [k, n] = id.split('~'); return n ? LANG_BY[k].more[n - 1] : LANG_BY[k].text; };
 
 /* Two kinds of run:
    · board: the JetPunk / Seterra style. One or more games played back to back on one clock:
@@ -21,6 +27,7 @@ const GAMES = [
   { id: 'borders', label: 'Borders', em: '🧱', desc: 'Name the neighbours', more: true },
   { id: 'flagmap', label: 'Flag → Map', em: '📍', desc: 'Flag → tap the country', more: true },
   { id: 'duel', label: 'Bigger country', em: '⚖️', desc: 'Pick the bigger one', more: true },
+  { id: 'lang', label: 'Guess the language', em: '🗣️', desc: 'Name the language', more: true },
 ];
 const MAP_GAMES = new Set(['map', 'mapname', 'flagmap']);
 const MODES = [
@@ -62,7 +69,7 @@ function isRight(id, kind, typed) {
   return set.has(n) || set.has(n.replace(/^cityof/, '').replace(/city$/, ''));
 }
 const answerText = (id, kind) => kind === 'capital' ? BY_ID[id].capital : BY_ID[id].name;
-const kindOfGame = (g) => g === 'capitals' ? 'capital' : g === 'shapes' ? 'shape' : MAP_GAMES.has(g) ? 'map' : g === 'revcap' || g === 'borders' ? 'country' : g === 'duel' ? 'duel' : 'flag';
+const kindOfGame = (g) => g === 'capitals' ? 'capital' : g === 'shapes' ? 'shape' : MAP_GAMES.has(g) ? 'map' : g === 'revcap' || g === 'borders' ? 'country' : g === 'duel' ? 'duel' : g === 'lang' ? 'lang' : 'flag';
 
 /* ---------------- seeded random ---------------- */
 function rng(seed) {
@@ -113,9 +120,34 @@ function makeBoard(cfg) {
         pairs.push(r() < 0.5 ? a + '|' + b : b + '|' + a);
       }
       sec.ids = pairs;
+    } else if (g === 'lang') {
+      // Up to 20 official languages of the region's countries; 4 options each (see langOptions).
+      const here = new Set(pool(cfg.region));
+      // A region with under 10 languages (the Americas) also gets their other sentences, up to 10 rounds.
+      const langs = LANGS.filter((l) => l.countries.some((c) => here.has(c)));
+      let ids = shuffle(langs.map((l) => l.k), r).slice(0, 20);
+      if (ids.length < 10) ids = ids.concat(shuffle(langs.flatMap((l) => l.more.map((t, n) => l.k + '~' + (n + 1))), r).slice(0, 10 - ids.length));
+      sec.ids = shuffle(ids, r);
+      sec.opts = {};
+      sec.ids.forEach((id) => { sec.opts[id] = langOptions(id.split('~')[0], here, r); });
     }
     return sec;
   });
+}
+// Guess the language: the right one + 3 wrong ones. Wrong ones in the same writing when possible (Arabic vs Persian vs
+// Urdu, not Arabic vs French), up to 2 of the region's languages first; never one that's almost the same language (`close`).
+function langOptions(k, here, r) {
+  const L = LANG_BY[k], bad = new Set([k].concat(L.close || []));
+  const ok = LANGS.filter((x) => !bad.has(x.k));
+  // "Near" = spoken in the run's region and on the same continent as the answer (so Latin gets Italian or Romanian
+  // rather than Zulu on a World run).
+  const conts = new Set(L.countries.map((c) => BY_ID[c].region));
+  const near = (x) => x.countries.some((c) => here.has(c) && conts.has(BY_ID[c].region));
+  const tiers = [shuffle(ok.filter((x) => x.script === L.script && near(x)), r).slice(0, 2), ok.filter((x) => x.script === L.script),
+    L.script === 'Latin' ? [] : ok.filter((x) => x.script !== 'Latin' && x.script !== L.script), ok];
+  const out = [];
+  tiers.forEach((t) => shuffle(t.map((x) => x.k), r).forEach((x) => { if (out.length < 3 && !out.includes(x) && !out.some((o) => (LANG_BY[o].close || []).includes(x))) out.push(x); }));
+  return shuffle([k].concat(out), r);
 }
 // The right answer for a duel round "a|b": whichever is bigger.
 const duelWinner = (key) => { const [a, b] = key.split('|'); return BY_ID[a].area > BY_ID[b].area ? a : b; };
@@ -327,7 +359,7 @@ function dailyCfg(day) {
 }
 const dayLabel = (day) => new Date(day * 86400000).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
 
-window.GS = { recordMisses, topMisses, todayNum, dailyCfg, duelWinner, GAMES, suggest, editDistance, norm, isRight, answersFor, makeRun, makeBoard, encodeCode, decodeCode, fmtTime, pool, rng, better, compare, GAME_ORDERS, cfgLabel, DATA };
+window.GS = { LANGS, LANG_BY, langOf, langText, recordMisses, topMisses, todayNum, dailyCfg, duelWinner, GAMES, suggest, editDistance, norm, isRight, answersFor, makeRun, makeBoard, encodeCode, decodeCode, fmtTime, pool, rng, better, compare, GAME_ORDERS, cfgLabel, DATA };
 if (window.GS_NO_UI) return;
 
 /* ---- shared UI: DOM helper, menus, setup ---- */
@@ -706,7 +738,7 @@ function playSection(R) {
     giveUp: () => giveUpDialog(R, api),
     quit: () => { if (confirm('Stop this run? It won\'t count.')) { R.clock.over = true; home(); } },
   };
-  api.ui = MAP_GAMES.has(sec.game) ? mapGame(api) : sec.game === 'borders' ? bordersGame(api) : sec.game === 'duel' ? duelGame(api) : gridGame(api);
+  api.ui = MAP_GAMES.has(sec.game) ? mapGame(api) : sec.game === 'borders' ? bordersGame(api) : sec.game === 'duel' ? duelGame(api) : sec.game === 'lang' ? langGame(api) : gridGame(api);
 }
 function giveUpDialog(R, api) {
   const se = S.session, more = R.sec < se.board.length - 1;
@@ -1461,6 +1493,66 @@ function duelGame(api) {
   };
 }
 
+/* Guess the language: a sentence (Article 1 of the Universal Declaration of Human Rights, a real official translation)
+   in one of the region's official languages; pick it from 4. A wrong pick shows the right one and counts as missed;
+   the clock is stopped while the answer is on screen. On a keyboard: 1–4. */
+const LANG_TAG = { zho: 'zh-Hans', jpn: 'ja', kor: 'ko' }; // so Chinese / Japanese characters get the right font
+function langQuote(id, cls) {
+  const l = langOf(id);
+  return h('blockquote', { class: cls || 'lang-text', dir: l.dir, lang: LANG_TAG[l.k] || null }, langText(id));
+}
+function langGame(api) {
+  const { sec, res } = api;
+  let i = 0, busy = false, revealed = false;
+  const foundEl = h('span', { class: 'found num' });
+  const arena = h('div', { class: 'duel langq' });
+  const footer = h('div', { class: 'reveal-bar', hidden: true });
+  const head = boardHead(api, h('div', { class: 'progress' }, foundEl));
+  mount(h('div', { class: 'app grid-run' }, head, arena, footer));
+  function count() { foundEl.textContent = res.found.length + ' / ' + sec.ids.length + ' right · round ' + Math.min(i + 1, sec.ids.length); }
+  function draw() {
+    const k = sec.ids[i];
+    arena.replaceChildren(h('p', { class: 'eyebrow center' }, 'Which language?'), langQuote(k),
+      h('div', { class: 'lang-opts' }, sec.opts[k].map((o, n) => h('button', { class: 'duel-pick lang-pick', 'data-id': o, onclick: () => pick(o) },
+        h('b', null, LANG_BY[o].name), h('span', { class: 'key' }, String(n + 1))))));
+  }
+  function pick(o) {
+    if (busy || revealed || i >= sec.ids.length) return;
+    busy = true; api.R.clock.pause();
+    const id = sec.ids[i], k = langOf(id).k;
+    if (o === k) res.found.push(id); else try { navigator.vibrate && navigator.vibrate(40); } catch (e) { /* no vibration */ }
+    arena.querySelectorAll('.lang-pick').forEach((btn) => {
+      const b = btn.getAttribute('data-id');
+      btn.classList.add(b === k ? 'right' : b === o ? 'wrong' : 'other');
+    });
+    count();
+    setTimeout(() => {
+      busy = false; api.R.clock.resume(); i++;
+      if (i >= sec.ids.length) { api.done(); return; }
+      count(); draw();
+    }, o === k ? 700 : 1400);
+  }
+  const onKey = (e) => {
+    if (busy || revealed || i >= sec.ids.length || e.ctrlKey || e.metaKey || e.altKey) return;
+    const n = '1234'.indexOf(e.key);
+    if (n >= 0 && sec.opts[sec.ids[i]][n]) pick(sec.opts[sec.ids[i]][n]);
+  };
+  document.addEventListener('keydown', onKey); cleanup.push(() => document.removeEventListener('keydown', onKey));
+  count(); draw();
+  return {
+    completed() { head.classList.add('all-done'); },
+    reveal(btn) {
+      revealed = true; head.classList.add('gave-up');
+      arena.replaceChildren(h('p', { class: 'eyebrow' }, 'Rounds left'), langList(sec.ids.slice(i)));
+      footer.hidden = false; footer.replaceChildren(btn);
+    },
+  };
+}
+// Language name + its sentence (results and give up).
+function langList(keys) {
+  return h('ul', { class: 'langlist' }, keys.map((id) => h('li', null, h('b', null, langOf(id).name), langQuote(id, 'lang-small'))));
+}
+
 /* ---- results, challenges, leaderboard ---- */
 function shareUrl(cfg, score) {
   const p = new URLSearchParams({ c: encodeCode(cfg).replace('-', ''), n: score.name, t: String(score.time), s: String(score.correct) });
@@ -1494,6 +1586,8 @@ function missedBoard(sec) {
     body = h('ul', { class: 'pairs' }, Object.entries(by).map(([c, ns]) => h('li', null, h('span', null, BY_ID[c].name), h('b', null, ns.join(', ')))));
   } else if (sec.game === 'duel') {
     body = h('ul', { class: 'pairs' }, sec.missed.map((key) => { const w = duelWinner(key), l = key.split('|').find((x) => x !== w); return h('li', null, h('span', null, BY_ID[w].name + ' > ' + BY_ID[l].name), h('b', null, BY_ID[w].area.toLocaleString('en-US') + ' km²')); }));
+  } else if (sec.game === 'lang') {
+    body = langList(sec.missed);
   } else {
     body = h('p', { class: 'namelist' }, sec.missed.map((id) => BY_ID[id].name).join(' · '));
   }
