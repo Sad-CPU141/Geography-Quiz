@@ -13,3 +13,5 @@ Where a country has more than one capital or a separate seat of government (e.g.
 
 - **Online race:** Firebase JavaScript SDK (Google), Apache License 2.0, self-hosted in `vendor/firebase/` (see `NOTICE.txt`).
 - **QR codes:** qrcode-generator by Kazuhiko Arase (MIT) and jsQR by Cosmo Wolfe (Apache 2.0), self-hosted in `vendor/qr/`.
+
+- **Globe (Hot or cold):** d3-geo and d3-array by Mike Bostock (ISC), self-hosted in `vendor/d3/`; outlines from Natural Earth (public domain) via world-atlas (ISC), built by `tools/globe.mjs`.

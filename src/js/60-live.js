@@ -204,7 +204,7 @@ function liveLobby(code) {
     LIVE.room = room;
     const host = room.host === NET.uid();
     what.textContent = cfgLabel(room.cfg);
-    if (usesLangs(room.cfg)) needLangs().catch(() => {}); // fetch the sentences while waiting
+    needAssets(room.cfg).catch(() => {}); // fetch what the games need while waiting
     const ps = Object.entries(room.players || {}).filter(([, p]) => !p.gone);
     list.replaceChildren(...ps.map(([id, p]) => h('li', null, h('span', { class: 'rank' }, id === room.host ? '★' : '•'), h('div', { class: 'q' }, p.name + (id === NET.uid() ? ' (you)' : '')))));
     startBtn.hidden = !host; wait.hidden = host;
@@ -230,7 +230,7 @@ async function liveStartRound(next) {
 // Everyone: the countdown runs to the shared start time, then the same run starts on every phone.
 function liveBegin(room) {
   LIVE.startedRound = room.round;
-  if (usesLangs(room.cfg) && !langsReady()) { needLangs().then(() => liveBegin2(room), () => toast('Couldn\'t load the languages')); return; }
+  if (!assetsReady(room.cfg)) { needAssets(room.cfg).then(() => liveBegin2(room), () => toast('Couldn\'t load the game')); return; }
   liveBegin2(room);
 }
 function liveBegin2(room) {
@@ -342,7 +342,7 @@ function liveCfg(cfg, st) {
 function liveNextRound() {
   NET.update('rooms/' + LIVE.code, { picking: true }).catch(() => {});
   if (LIVE.room && LIVE.room.cfg) {
-    const c = LIVE.room.cfg; Object.assign(S.setup, { kind: 'board', games: c.games.slice(), help: !!c.help, hard: !!c.hard, langType: !!c.langType, strict: !!c.strict, allMap: !!c.allMap, peek: !c.noPeek });
+    const c = LIVE.room.cfg; Object.assign(S.setup, { kind: 'board', games: c.games.slice(), help: !!c.help, hard: !!c.hard, langType: !!c.langType, strict: !!c.strict, allMap: !!c.allMap, peek: !c.noPeek, counts: Object.assign({}, c.counts || {}) });
     if (c.regions) Object.assign(S.setup, { multi: true, regions: c.regions.slice() });
     else Object.assign(S.setup, { multi: false, region: c.limit ? 'mixed' : c.region }, c.limit ? { mixN: c.limit } : {});
   }

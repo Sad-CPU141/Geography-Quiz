@@ -3,7 +3,7 @@
    Flags, icons, fonts: cache first (flag file names are content hashes, so they never go stale). */
 const VERSION = '__VERSION__';
 const CACHE = 'geospeed-' + VERSION;
-const CORE = ['./', './index.html', './app.js?v=' + VERSION, './data.js?v=' + VERSION, './map.js?v=' + VERSION, './langs.js?v=' + VERSION, './styles.css?v=' + VERSION, './manifest.webmanifest',
+const CORE = ['./', './index.html', './app.js?v=' + VERSION, './data.js?v=' + VERSION, './map.js?v=' + VERSION, './langs.js?v=' + VERSION, './globe.js?v=' + VERSION, './vendor/d3/d3-array.min.js', './vendor/d3/d3-geo.min.js', './styles.css?v=' + VERSION, './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png', './icons/favicon.png',
   './fonts/anton-latin-400-normal.woff2', './fonts/barlow-latin-600-normal.woff2', './fonts/barlow-latin-700-normal.woff2',
   './fonts/barlow-semi-condensed-latin-700-normal.woff2', './fonts/barlow-semi-condensed-latin-800-normal.woff2'];

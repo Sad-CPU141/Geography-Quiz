@@ -26,10 +26,21 @@ function loadMap() {
   return mapLoading;
 }
 
+// Extra files some games need: the language sentences, and the globe (d3-geo + outlines) for Hot or cold.
+let globeLoading = null;
+function needGlobe() {
+  if (window.d3 && window.d3.geoOrthographic && window.GS_GLOBE) return Promise.resolve();
+  const load = (src) => new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+  if (!globeLoading) globeLoading = load('vendor/d3/d3-array.min.js').then(() => load('vendor/d3/d3-geo.min.js')).then(() => load('globe.js?v=' + APP_VERSION)).catch((e) => { globeLoading = null; throw e; });
+  return globeLoading;
+}
+const needsGlobe = (cfg) => !!(cfg && cfg.kind === 'board' && cfg.games.includes('hot'));
+const assetsReady = (cfg) => (!usesLangs(cfg) || langsReady()) && (!needsGlobe(cfg) || !!(window.d3 && window.d3.geoOrthographic && window.GS_GLOBE));
+const needAssets = (cfg) => Promise.all([usesLangs(cfg) ? needLangs() : null, needsGlobe(cfg) ? needGlobe() : null]);
 function startSession(cfg, players, challenge, daily, practice) {
-  if (usesLangs(cfg) && !langsReady()) {
+  if (!assetsReady(cfg)) {
     mount(h('div', { class: 'app' }, h('div', { class: 'cover' }, h('p', { class: 'muted' }, 'Loading…'))));
-    needLangs().then(() => startSession(cfg, players, challenge, daily, practice), () => { toast('Couldn\'t load the languages. Check your connection.'); home(); });
+    needAssets(cfg).then(() => startSession(cfg, players, challenge, daily, practice), () => { toast('Couldn\'t load the game. Check your connection.'); home(); });
     return;
   }
   // One go at the daily run per day on this device.

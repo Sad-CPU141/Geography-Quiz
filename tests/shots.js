@@ -34,12 +34,14 @@ async function setupBoard(page, labels, region) {
   const games = labels.map((l) => GAME_ID[l]);
   await page.click('button:has-text("▶ New run")'); await page.waitForSelector('.seg');
   await page.click('.opt:has-text("Full board")');
-  // Add each wanted game from its tab, then remove the others from "Your run".
-  for (const g of games) {
-    if (await page.$('.picked .game-row[data-game="' + g + '"]')) continue;
-    const cat = await page.evaluate((g) => window.GS.GAME_CATS.find((c) => c.games.includes(g)).id, g);
-    await page.click('.cat-tab[data-cat="' + cat + '"]');
-    await page.click('.game-grid .game-pick[data-game="' + g + '"]');
+  // Add each wanted game from the game browser ("＋ Add games"), then remove the others from "Your run".
+  const missing = [];
+  for (const g of games) if (!(await page.$('.picked .game-row[data-game="' + g + '"]'))) missing.push(g);
+  if (missing.length) {
+    await page.click('.add-games');
+    await page.click('.gb-sheet .cat-tab[data-cat="all"]');
+    for (const g of missing) await page.click('.gb-card[data-game="' + g + '"] .gb-add');
+    await page.click('.gb-head [aria-label="Done"]');
   }
   for (;;) {
     const extra = await page.$$eval('.picked .game-row', (rs, want) => rs.map((r) => r.dataset.game).filter((g) => !want.includes(g)), games);
@@ -351,10 +353,9 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
       all: async () => { const names = await page.evaluate(() => window.GS.session.board[0].ids.slice(0, 6).map((id) => window.GS.DATA.find((c) => c.id === id).name)); for (const n of names) { await page.fill('.namebox input', ''); await page.type('.namebox input', n); } },
       hot: async () => { const n = await page.evaluate(() => { const i = +/Mystery country (\d+)/.exec(document.querySelector('.duel .eyebrow').textContent)[1] - 1; const id = window.GS.session.board[0].ids[i]; return window.GS.DATA.find((c) => c.id === id).name; }); await typeEnter('France' === n ? 'Spain' : 'France'); await page.waitForTimeout(200); await typeEnter(n); await page.waitForTimeout(1200); },
       closer: async () => { const t = await page.textContent('.closer-target b'); const ids = await page.$$eval('.duel-pick', (bs) => bs.map((x) => x.dataset.id)); const w = await page.evaluate(([t, ids]) => { const tid = window.GS.DATA.find((c) => c.name === t).id; return window.GS.closerOf([tid, ...ids].join('|')); }, [t, ids]); await page.click('.duel-pick[data-id="' + w + '"]'); await page.waitForTimeout(950); },
-      clues: async () => { const total = await page.evaluate(() => window.GS.session.board[0].ids.length); const i = total - (await leftNow()); await page.click('.lang-type button'); const n = await page.evaluate((i) => window.GS.DATA.find((c) => c.id === window.GS.session.board[0].ids[i]).name, i); await typeEnter(n); await page.waitForTimeout(1100); },
+      clues: async () => { const total = await page.evaluate(() => window.GS.session.board[0].ids.length); const i = total - (await leftNow()); await typeEnter('Atlantis' === 'x' ? '' : 'Mongolia'); await page.waitForTimeout(150); const n = await page.evaluate((i) => window.GS.DATA.find((c) => c.id === window.GS.session.board[0].ids[i]).name, i); await typeEnter(n); await page.waitForTimeout(1100); },
       letter: async () => { const L = (await page.textContent('.bigletter')).trim(); const names = await page.evaluate((L) => window.GS.session.board[0].letters.find((x) => x.L === L).ids.map((id) => window.GS.DATA.find((c) => c.id === id).name), L); for (const n of names) { await page.fill('.lang-type input', ''); await page.type('.lang-type input', n); } await page.waitForTimeout(800); },
       scramble: async () => { const shown = (await page.$$eval('.scramble .word', (ws) => ws.map((w) => w.textContent))).join(' '); const n = await page.evaluate((sh) => { const sec = window.GS.session.board[0]; const id = sec.ids.find((x) => sec.scr[x] === sh); return window.GS.DATA.find((c) => c.id === id).name; }, shown); await page.fill('.lang-type input', ''); await page.type('.lang-type input', n); await page.waitForTimeout(800); },
-      currency: async () => { const clue = (await page.textContent('.bigclue')).trim(); const n = await page.evaluate((clue) => window.GS.DATA.find((c) => c.cur.includes(clue) && window.GS.CURRENCY_COUNT[clue] === 1 || c.dem === clue).name, clue); await page.fill('.lang-type input', ''); await page.type('.lang-type input', n); await page.waitForTimeout(800); },
       flagpick: async () => { const n = (await page.textContent('.prompt .target')).trim(); const id = await page.evaluate((n) => window.GS.DATA.find((c) => c.name === n).id, n); await page.click('.flagpick .tile[data-id="' + id + '"]'); await page.waitForTimeout(100); },
     };
     const label = { chain: 'Border chain', all: 'Name them all', hot: 'Hot or cold', closer: 'Closer or further', clues: 'Clue reveal', letter: 'Letter rush', scramble: 'Unscramble', currency: 'Currency & people', flagpick: 'Flag finder' };
@@ -438,6 +439,42 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await ctx.close();
   }
   if (only === 'where') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }
+
+  // The game browser: cards with pictures; a card opens its details (bigger picture, description, example); ＋ adds.
+  // Then the per-game "how many": Border chain ×1, Flags ×5 → the run has 1 puzzle and 5 flags.
+  for (const [W, H] of only && only !== 'browser' ? [] : [[360, 780], [1920, 1080]]) {
+    const ctx = await b.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: W < 500 ? 2 : 1 });
+    const page = await ctx.newPage();
+    const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(BASE);
+    await page.click('button:has-text("▶ New run")'); await page.click('.opt:has-text("Full board")');
+    await page.click('.add-games');
+    await page.waitForSelector('.gb-card');
+    ok(await page.$$eval('.gb-card', (c) => c.length) === 18, 'browser ' + W + ': 18 game cards (Currency & people removed)');
+    await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(outDir, 'browser-' + W + '.png') });
+    await page.click('.gb-card[data-game="chain"]');
+    await page.waitForSelector('.gb-detail');
+    ok(/Travle/.test(await page.textContent('.gb-detail')) && await page.$('.gb-example') !== null, 'browser ' + W + ': details with description and example');
+    await page.screenshot({ path: path.join(outDir, 'browser-detail-' + W + '.png') });
+    await page.click('.gb-detail .gb-add');
+    ok(/In your run/.test(await page.textContent('.gb-detail .gb-add')), 'browser ' + W + ': added from the details');
+    await page.click('.gb-head [aria-label="Done"]');
+    ok(await page.$('.picked .game-row[data-game="chain"]') !== null, 'browser ' + W + ': Border chain is in Your run');
+    if (W < 500) {
+      await page.selectOption('.picked .game-row[data-game="chain"] .howmany', '1');
+      await page.selectOption('.picked .game-row[data-game="flags"] .howmany', '5');
+      await page.screenshot({ path: path.join(outDir, 'browser-yourrun.png'), fullPage: true });
+      await page.click('.opt:has-text("Europe")');
+      await page.click('button.btn.primary:has-text("Start")');
+      await page.waitForFunction(() => /Flags 5/.test((document.querySelector('.cover') || {}).textContent || ''), null, { timeout: 5000 }).catch(() => {});
+      const cov = await page.textContent('.cover');
+      ok(/Flags 5/.test(cov) && /Border chain 1/.test(cov), 'how many: 5 flags and 1 Border chain puzzle (' + cov + ')');
+    }
+    ok(errors.length === 0, 'browser ' + W + ': no page errors ' + JSON.stringify(errors));
+    await ctx.close();
+  }
+  if (only === 'browser') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }
 
   // Options: Map with no borders, and typed languages — switches appear only with those games, go into the
   // code (+N / +T) and change how the games play.
@@ -800,7 +837,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await A.screenshot({ path: path.join(outDir, 'live-next.png'), fullPage: true });
     await B.waitForFunction(() => /picking the next round/.test(document.querySelector('.card.sky').textContent), null, { timeout: 4000 }).catch(() => {});
     ok(/picking the next round/.test(await B.textContent('.card.sky')), 'Sam sees the host is picking');
-    await A.click('.game-pick[data-game="capitals"]');
+    await A.click('.add-games'); await A.click('.gb-sheet .cat-tab[data-cat="all"]'); await A.click('.gb-card[data-game="capitals"] .gb-add'); await A.click('.gb-head [aria-label="Done"]');
     await A.click('.optrow:has-text("See what game") .switch'); // round 2: hide what game others are on
     await A.click('button:has-text("Start round 2")');
     await Promise.all([A.waitForSelector('.tile.active', { timeout: 9000 }), B.waitForSelector('.tile.active', { timeout: 9000 })]);

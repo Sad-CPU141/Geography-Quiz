@@ -1,9 +1,9 @@
 /* Geography Speedrun service worker (same approach as the other Game Night games).
    App files: network first, so new versions win when online; cached copy when offline.
    Flags, icons, fonts: cache first (flag file names are content hashes, so they never go stale). */
-const VERSION = '80ec61f81b';
+const VERSION = 'c28efb4de2';
 const CACHE = 'geospeed-' + VERSION;
-const CORE = ['./', './index.html', './app.js?v=' + VERSION, './data.js?v=' + VERSION, './map.js?v=' + VERSION, './langs.js?v=' + VERSION, './styles.css?v=' + VERSION, './manifest.webmanifest',
+const CORE = ['./', './index.html', './app.js?v=' + VERSION, './data.js?v=' + VERSION, './map.js?v=' + VERSION, './langs.js?v=' + VERSION, './globe.js?v=' + VERSION, './vendor/d3/d3-array.min.js', './vendor/d3/d3-geo.min.js', './styles.css?v=' + VERSION, './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png', './icons/favicon.png',
   './fonts/anton-latin-400-normal.woff2', './fonts/barlow-latin-600-normal.woff2', './fonts/barlow-latin-700-normal.woff2',
   './fonts/barlow-semi-condensed-latin-700-normal.woff2', './fonts/barlow-semi-condensed-latin-800-normal.woff2'];

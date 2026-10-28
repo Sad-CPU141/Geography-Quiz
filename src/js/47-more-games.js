@@ -72,12 +72,13 @@ function currencyGame(api) {
    After the last clue, "Give up on this one" counts it missed. */
 function cluesFor(id) {
   const c = BY_ID[id], round2 = (a) => { const p = Math.pow(10, Math.max(0, String(Math.round(a)).length - 2)); return Math.round(a / p) * p; };
+  // Hardest first (owner: the continent first was too easy).
   const list = [
-    ['🌍', 'Continent', regionOf(c.region).label],
-    ['🏖️', 'Coast', (c.land ? 'Landlocked' : 'Has a coastline') + ' · ' + (c.nb.length ? c.nb.length + (c.nb.length === 1 ? ' land neighbour' : ' land neighbours') : 'no land neighbours')],
     ['📐', 'Size', 'About ' + round2(c.area).toLocaleString('en-US') + ' km²'],
-    ['🧭', 'Part of the world', c.sub || regionOf(c.region).label],
+    ['🏖️', 'Coast', (c.land ? 'Landlocked' : 'Has a coastline') + ' · ' + (c.nb.length ? c.nb.length + (c.nb.length === 1 ? ' land neighbour' : ' land neighbours') : 'no land neighbours')],
     ['🗣️', 'Language' + (c.lang.length > 1 ? 's' : ''), c.lang.slice(0, 3).join(', ') || '—'],
+    ['🌍', 'Continent', regionOf(c.region).label],
+    ['🧭', 'Part of the world', c.sub || regionOf(c.region).label],
     ['💰', 'Currency', c.cur.join(', ') || '—'],
     ['🏛️', 'Capital starts with', c.capital[0]],
   ];
@@ -87,27 +88,40 @@ function cluesFor(id) {
   return list;
 }
 function cluesGame(api) {
+  // You start with one clue; every wrong guess (a real country) shows the next one. No clues left → missed.
+  // Pass skips the country (missed). One shot: the first wrong guess ends it.
   const { sec, res } = api;
-  let i = 0, shown = 1, busy = false, revealed = false;
+  let i = 0, shown = 1, busy = false, revealed = false, wrong = [];
   const strict = !!S.session.cfg.strict;
   const foundEl = h('span', { class: 'found num' });
-  const input = countryBox('Which country?');
+  const input = countryBox('Guess the country…');
   const sugEl = h('div', { class: 'suggest', 'aria-live': 'polite', hidden: true });
   const list = h('ol', { class: 'clues' });
+  const tried = h('div', { class: 'chain-chips' });
   const verdict = h('p', { class: 'lang-verdict center' });
-  const more = h('button', { class: 'btn ghost small', style: { width: 'auto', flex: '0 0 auto' }, onmousedown: (e) => e.preventDefault(), onclick: () => nextClue() }, 'Next clue');
+  const pass = h('button', { class: 'btn ghost small', style: { width: 'auto', flex: '0 0 auto' }, onmousedown: (e) => e.preventDefault(), onclick: () => end(false) }, 'Pass');
   const footer = h('div', { class: 'reveal-bar', hidden: true });
   const head = boardHead(api, [h('div', { class: 'progress' }, foundEl)]);
-  mount(h('div', { class: 'app grid-run' }, head, h('div', { class: 'duel' }, list, h('div', { class: 'row lang-type' }, input, more), sugEl, verdict), footer));
-  const help = spellingHelp(input, sugEl, 'country', () => sec.ids[i], () => end(true), null, strict ? () => { shake(input); end(false); } : null);
+  mount(h('div', { class: 'app grid-run' }, head, h('div', { class: 'duel' }, list, h('div', { class: 'row lang-type' }, input, pass), sugEl, tried, verdict), footer));
+  const help = spellingHelp(input, sugEl, 'country', () => sec.ids[i], () => end(true), (text) => !!countryFromText(text), () => wrongGuess());
   function count() { foundEl.textContent = res.found.length + ' right · ' + Math.max(0, sec.ids.length - i - (busy ? 1 : 0)) + ' left'; }
   function draw() {
     const cl = cluesFor(sec.ids[i]);
     list.replaceChildren(...cl.slice(0, shown).map(([em, label, text]) => h('li', null, h('span', { class: 'cl-em' }, em), h('small', null, label), text == null ? flagImg(sec.ids[i], 40) : h('b', null, text))));
-    more.textContent = shown < cl.length ? 'Next clue (' + (cl.length - shown) + ')' : 'Give up on this one';
+    tried.replaceChildren(...wrong.map((g) => h('span', { class: 'chip c-far' }, BY_ID[g].name)));
+    input.placeholder = 'Guess · clue ' + shown + '/' + cl.length;
     count();
   }
-  function nextClue() { if (busy || revealed) return; const n = cluesFor(sec.ids[i]).length; if (shown < n) { shown++; draw(); } else end(false); input.focus({ preventScroll: true }); }
+  function wrongGuess() {
+    if (busy || revealed) return;
+    const g = countryFromText(input.value);
+    if (!g) { shake(input); return; }
+    if (g === sec.ids[i]) return end(true);
+    shake(input); input.value = ''; help.clear();
+    if (!wrong.includes(g)) wrong.push(g);
+    if (strict || shown >= cluesFor(sec.ids[i]).length) return end(false);
+    shown++; draw();
+  }
   function end(right) {
     if (busy || revealed) return;
     busy = true; api.R.clock.pause(); input.disabled = true; help.clear();
@@ -117,7 +131,7 @@ function cluesGame(api) {
     verdict.className = 'lang-verdict center ' + (right ? 'ok' : 'bad');
     shown = cluesFor(id).length; draw(); count();
     setTimeout(() => {
-      busy = false; api.R.clock.resume(); i++; shown = 1;
+      busy = false; api.R.clock.resume(); i++; shown = 1; wrong = [];
       if (i >= sec.ids.length) { api.done(); return; }
       verdict.textContent = ''; verdict.className = 'lang-verdict center'; input.value = ''; input.disabled = false; draw(); window.scrollTo(0, 0); input.focus({ preventScroll: true });
     }, right ? 900 : 1800);
@@ -126,7 +140,7 @@ function cluesGame(api) {
   input.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return; e.preventDefault();
     if (busy || revealed || !input.value.trim()) return;
-    if (isRight(sec.ids[i], 'country', input.value)) end(true); else help.enter();
+    if (isRight(sec.ids[i], 'country', input.value)) end(true); else if (countryFromText(input.value)) wrongGuess(); else help.enter();
   });
   draw(); input.focus({ preventScroll: true });
   return {
@@ -135,32 +149,91 @@ function cluesGame(api) {
   };
 }
 
-/* Hot or cold: a mystery country. Each guess (any country) shows how far its centre is from the mystery
-   country's, and which way to go. 10 guesses each; then it's shown and counts as missed. */
-const HOT_TRIES = 10;
+/* Hot or cold (Globle style): a mystery country and a globe. Guess any country; it's painted on the globe by how
+   close it is to the mystery one (dark red = bordering or very close, pale = far away), with the distance
+   between their nearest borders. Unlimited guesses; "Reveal" gives up on that one (missed). 3 per game.
+   Needs d3-geo (vendor/d3, ISC) and src/globe.js (outlines) — loaded by needGlobe() when the run starts. */
+let globeFeatures = null;
+function globeFeature(id) {
+  if (!globeFeatures) {
+    globeFeatures = {};
+    Object.entries(window.GS_GLOBE).forEach(([k, rings]) => { globeFeatures[k] = { type: 'Feature', id: k, geometry: { type: 'MultiPolygon', coordinates: rings.map((r) => { const pts = []; for (let n = 0; n < r.length; n += 2) pts.push([r[n] / 5, r[n + 1] / 5]); return [pts]; }) } }; });
+  }
+  // Countries too small for the outlines: a small circle at their centre.
+  if (!globeFeatures[id]) globeFeatures[id] = { type: 'Feature', id, geometry: d3.geoCircle().center([BY_ID[id].ll[1], BY_ID[id].ll[0]]).radius(0.7)() };
+  return globeFeatures[id];
+}
+// Distance between two countries' nearest borders (0 = they touch), in km, from the outline points.
+const BORDER_KM = {};
+function borderKm(a, b) {
+  if (a === b) return 0;
+  const key = a < b ? a + b : b + a;
+  if (BORDER_KM[key] != null) return BORDER_KM[key];
+  if (BY_ID[a].nb.includes(b)) return (BORDER_KM[key] = 0);
+  const pts = (id) => { const g = globeFeature(id).geometry, out = []; (g.type === 'Polygon' ? [g.coordinates] : g.coordinates).forEach((p) => p[0].forEach((q) => out.push(q))); return out; };
+  const pa = pts(a), pb = pts(b), R = Math.PI / 180;
+  let best = Infinity;
+  for (const [x1, y1] of pa) {
+    const c1 = Math.cos(y1 * R);
+    for (const [x2, y2] of pb) {
+      const hv = Math.sin((y2 - y1) * R / 2) ** 2 + c1 * Math.cos(y2 * R) * Math.sin((x2 - x1) * R / 2) ** 2;
+      if (hv < best) best = hv;
+    }
+  }
+  return (BORDER_KM[key] = Math.round(2 * 6371 * Math.asin(Math.sqrt(best)) / 10) * 10);
+}
+const GLOBE_HEAT = [[0, '#7f0000'], [250, '#b30000'], [750, '#d7301f'], [1500, '#ef6548'], [2500, '#fc8d59'], [4000, '#fdbb84'], [6000, '#fdd49e'], [Infinity, '#fff3dc']];
+const globeColour = (d) => GLOBE_HEAT.find(([max]) => d <= max)[1];
 function hotGame(api) {
   const { sec, res } = api;
-  let i = 0, busy = false, revealed = false, guesses = [];
+  let i = 0, busy = false, revealed = false, guesses = [], rot = [0, -20], scale = 1, spin = 0;
   const foundEl = h('span', { class: 'found num' });
-  const input = countryBox('Guess a country…');
+  const input = countryBox('Guess any country…');
   const sugEl = h('div', { class: 'suggest', 'aria-live': 'polite', hidden: true });
-  const list = h('ul', { class: 'hotlist' });
-  const top = h('p', { class: 'eyebrow center' });
-  const verdict = h('p', { class: 'lang-verdict center' });
+  const list = h('ul', { class: 'hotlist' }), top = h('p', { class: 'eyebrow center' }), verdict = h('p', { class: 'lang-verdict center' });
+  const giveBtn = h('button', { class: 'btn ghost small', style: { width: 'auto', flex: '0 0 auto' }, onmousedown: (e) => e.preventDefault(), onclick: () => end(false) }, 'Reveal');
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg'); svg.setAttribute('class', 'globe'); svg.setAttribute('viewBox', '0 0 400 400');
+  const sphere = document.createElementNS(NS, 'path'); sphere.setAttribute('class', 'g-sea');
+  const grat = document.createElementNS(NS, 'path'); grat.setAttribute('class', 'g-grat');
+  const land = document.createElementNS(NS, 'g');
+  svg.append(sphere, grat, land);
+  const paths = {};
+  DATA.forEach((c) => { const p = document.createElementNS(NS, 'path'); p.setAttribute('class', 'g-cty'); land.appendChild(p); paths[c.id] = p; });
+  const zoom = h('div', { class: 'zoom' }, h('button', { class: 'iconbtn', 'aria-label': 'Zoom in', onclick: () => { scale = Math.min(4, scale * 1.4); render(); } }, '+'), h('button', { class: 'iconbtn', 'aria-label': 'Zoom out', onclick: () => { scale = Math.max(1, scale / 1.4); render(); } }, '−'));
   const footer = h('div', { class: 'reveal-bar', hidden: true });
   const head = boardHead(api, [h('div', { class: 'progress' }, foundEl)]);
-  mount(h('div', { class: 'app grid-run' }, head, h('div', { class: 'duel' }, top, h('div', { class: 'row lang-type' }, input), sugEl, verdict, list), footer));
+  mount(h('div', { class: 'app grid-run' }, head, h('div', { class: 'duel' }, top, h('div', { class: 'globewrap' }, svg, zoom), h('div', { class: 'row lang-type' }, input, giveBtn), sugEl, verdict, list), footer));
+  const proj = d3.geoOrthographic().translate([200, 200]).clipAngle(90), gp = d3.geoPath(proj), graticule = d3.geoGraticule10();
+  function render() {
+    proj.scale(190 * scale).rotate(rot);
+    sphere.setAttribute('d', gp({ type: 'Sphere' })); grat.setAttribute('d', gp(graticule));
+    DATA.forEach((c) => paths[c.id].setAttribute('d', gp(globeFeature(c.id)) || ''));
+  }
+  // Turn the globe so a country is in the middle.
+  function turnTo(id) {
+    cancelAnimationFrame(spin);
+    const [lat, lon] = BY_ID[id].ll, from = rot.slice(), to = [-lon, -lat], t0 = performance.now();
+    let dl = to[0] - from[0]; dl = ((dl + 540) % 360) - 180;
+    const step = (now) => { const t = Math.min(1, (now - t0) / 650), e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; rot = [from[0] + dl * e, from[1] + (to[1] - from[1]) * e]; render(); if (t < 1) spin = requestAnimationFrame(step); };
+    spin = requestAnimationFrame(step);
+  }
+  // Drag to spin.
+  let drag = null;
+  svg.addEventListener('pointerdown', (e) => { cancelAnimationFrame(spin); svg.setPointerCapture(e.pointerId); drag = { x: e.clientX, y: e.clientY, rot: rot.slice() }; });
+  svg.addEventListener('pointermove', (e) => { if (!drag) return; if (e.pointerType === 'mouse' && e.buttons === 0) { drag = null; return; } const k = 0.4 / scale; rot = [drag.rot[0] + (e.clientX - drag.x) * k, Math.max(-85, Math.min(85, drag.rot[1] - (e.clientY - drag.y) * k))]; render(); });
+  const stop = () => { drag = null; }; svg.addEventListener('pointerup', stop); svg.addEventListener('pointercancel', stop); svg.addEventListener('lostpointercapture', stop);
+  cleanup.push(() => cancelAnimationFrame(spin));
   const help = spellingHelp(input, sugEl, 'country', () => sec.ids[i], () => guess(), (text) => !!countryFromText(text));
   function count() { foundEl.textContent = res.found.length + ' found · ' + Math.max(0, sec.ids.length - i - (busy ? 1 : 0)) + ' left'; }
-  // Warm colour scale: under 500 km hot, over 6000 km cold.
-  const heat = (d) => d === 0 ? 'hit' : d < 500 ? 'h4' : d < 1500 ? 'h3' : d < 3500 ? 'h2' : d < 6000 ? 'h1' : 'h0';
-  const arrows = ['⬆️', '↗️', '➡️', '↘️', '⬇️', '↙️', '⬅️', '↖️'];
-  function draw() {
+  function paint() {
     const target = sec.ids[i];
-    top.textContent = 'Mystery country ' + (i + 1) + ' · guess ' + Math.min(guesses.length + 1, HOT_TRIES) + ' of ' + HOT_TRIES;
-    list.replaceChildren(...guesses.slice().sort((a, b) => km(a, target) - km(b, target)).map((g) => {
-      const d = g === target ? 0 : km(g, target);
-      return h('li', { class: heat(d) }, flagImg(g), h('span', { class: 'hn' }, BY_ID[g].name), h('b', { class: 'num' }, d ? fmtKm(d) : '✓'), h('span', { class: 'harrow' }, d ? arrows[Math.round(bearing(g, target) / 45) % 8] : '🎯'));
+    DATA.forEach((c) => { const p = paths[c.id]; p.removeAttribute('data-hit'); p.style.fill = ''; });
+    guesses.forEach((g) => { const p = paths[g]; if (g === target) p.setAttribute('data-hit', '1'); else p.style.fill = globeColour(borderKm(g, target)); });
+    top.textContent = 'Mystery country ' + (i + 1) + ' of ' + sec.ids.length + (guesses.length ? ' · ' + guesses.length + (guesses.length === 1 ? ' guess' : ' guesses') : '');
+    list.replaceChildren(...guesses.slice().sort((a, b) => borderKm(a, target) - borderKm(b, target)).map((g) => {
+      const d = borderKm(g, target);
+      return h('li', null, h('span', { class: 'swatch', style: { background: g === target ? 'var(--ok)' : globeColour(d) } }), flagImg(g), h('span', { class: 'hn' }, BY_ID[g].name), h('b', { class: 'num' }, g === target ? '✓' : d === 0 ? 'Bordering' : fmtKm(d)));
     }));
     count();
   }
@@ -169,29 +242,27 @@ function hotGame(api) {
     const g = countryFromText(input.value);
     if (!g) { shake(input); return; }
     input.value = ''; help.clear();
-    if (guesses.includes(g)) { toast('Already guessed'); return; }
-    guesses.push(g);
-    const target = sec.ids[i];
-    if (g === target) return end(true);
-    draw();
-    if (guesses.length >= HOT_TRIES) end(false);
+    if (guesses.includes(g)) { toast('Already guessed'); turnTo(g); return; }
+    guesses.push(g); paint(); turnTo(g);
+    if (g === sec.ids[i]) end(true);
   }
   function end(right) {
-    busy = true; api.R.clock.pause(); input.disabled = true;
+    if (busy || revealed) return;
+    busy = true; api.R.clock.pause(); input.disabled = true; help.clear();
     const target = sec.ids[i];
-    if (right) res.found.push(target);
-    verdict.textContent = (right ? '✓ ' + BY_ID[target].name + ' in ' + guesses.length : 'It was ' + BY_ID[target].name);
+    if (right) res.found.push(target); else { guesses.push(target); paint(); turnTo(target); }
+    verdict.textContent = right ? '✓ ' + BY_ID[target].name + ' in ' + guesses.length : 'It was ' + BY_ID[target].name;
     verdict.className = 'lang-verdict center ' + (right ? 'ok' : 'bad');
-    draw();
+    count();
     setTimeout(() => {
       busy = false; api.R.clock.resume(); i++; guesses = [];
       if (i >= sec.ids.length) { api.done(); return; }
-      verdict.textContent = ''; verdict.className = 'lang-verdict center'; input.disabled = false; draw(); window.scrollTo(0, 0); input.focus({ preventScroll: true });
-    }, right ? 1000 : 1900);
+      verdict.textContent = ''; verdict.className = 'lang-verdict center'; input.disabled = false; paint(); window.scrollTo(0, 0); input.focus({ preventScroll: true });
+    }, right ? 1300 : 2200);
   }
   input.addEventListener('input', () => { if (!busy && !revealed) help.update(); });
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (countryFromText(input.value)) guess(); else if (input.value.trim()) help.enter(); } });
-  draw(); input.focus({ preventScroll: true });
+  render(); paint(); input.focus({ preventScroll: true });
   return {
     completed() { head.classList.add('all-done'); },
     reveal(btn) { revealed = true; input.disabled = true; head.classList.add('gave-up'); list.replaceChildren(h('p', { class: 'eyebrow' }, 'The mystery countries'), h('p', { class: 'namelist' }, sec.ids.slice(i).map((id) => BY_ID[id].name).join(' · '))); footer.hidden = false; footer.replaceChildren(btn); },
@@ -234,9 +305,9 @@ function closerGame(api) {
   };
 }
 
-/* Letter rush: a letter; name every country (in the run's countries) starting with it, any order. 45 seconds
-   per letter — when time's up the ones you missed show for a moment and the next letter comes. */
-const LETTER_MS = 45000;
+/* Letter rush: a letter; name as many countries (of the run's countries) starting with it as you can in 12 seconds.
+   Right ones fill in; wrong ones just don't count. When time's up the ones you missed show, then the next letter. */
+const LETTER_MS = 12000;
 function letterGame(api) {
   const { sec, res } = api;
   let li = 0, busy = false, revealed = false, endsAt = 0, timer = 0;
@@ -313,11 +384,12 @@ function flagpickGame(api) {
   function tap(id) {
     if (revealed) { hint.textContent = BY_ID[id].name; return; }
     const cur = queue[0]; if (!cur) return;
-    if (must) { if (id === must) { tiles[must].classList.remove('must'); tiles[must].classList.add('missed'); tiles[must].querySelector('.lbl').textContent = BY_ID[must].name; must = null; missedN++; queue.shift(); ask(); } return; }
+    if (must) { if (id === must) { tiles[must].classList.remove('must'); tiles[must].classList.add('missed'); tiles[must].querySelector('.lbl').textContent = BY_ID[must].name; grid.appendChild(tiles[must]); must = null; missedN++; queue.shift(); ask(); } return; }
     if (tiles[id].classList.contains('done') || tiles[id].classList.contains('missed')) return;
     if (id === cur) {
       const t = tries[cur] || 0;
       res.found.push(cur); tiles[cur].classList.add('done', 'g' + t); tiles[cur].querySelector('.lbl').textContent = BY_ID[cur].name;
+      grid.appendChild(tiles[cur]); // found flags go to the back, so the ones left are up front (owner)
       queue.shift(); ask(); return;
     }
     tries[cur] = (tries[cur] || 0) + 1;
@@ -351,7 +423,8 @@ function chainGame(api) {
   const title = h('div', { class: 'chain-title' }), info = h('p', { class: 'eyebrow center' }), verdict = h('p', { class: 'lang-verdict center' });
   const chips = h('div', { class: 'chain-chips' });
   const paths = {}, dots = h('g', null);
-  const svg = h('svg', { class: 'map chainmap', preserveAspectRatio: 'xMidYMid meet' }, h('rect', { class: 'sea', x: -md.w, y: -md.h, width: md.w * 3, height: md.h * 3 }), h('path', { class: 'land', d: md.land }),
+  // Travle style: only the start, the end and the countries you've named are drawn — nothing else gives it away.
+  const svg = h('svg', { class: 'map chainmap', preserveAspectRatio: 'xMidYMid meet' }, h('rect', { class: 'sea', x: -md.w, y: -md.h, width: md.w * 3, height: md.h * 3 }),
     ...Object.entries(md.c).map(([id, d]) => (paths[id] = h('path', { class: 'cty', d, 'data-id': id }))), dots);
   const footer = h('div', { class: 'reveal-bar', hidden: true });
   const head = boardHead(api, [h('div', { class: 'progress' }, foundEl)]);
@@ -394,7 +467,7 @@ function chainGame(api) {
     guesses.forEach((g) => paths[g] && paths[g].setAttribute('data-st', 'c-' + colour(g)));
     if (showRoute) route.slice(1, -1).forEach((g) => { if (!guesses.includes(g) && paths[g]) paths[g].setAttribute('data-st', 'c-route'); });
     chips.replaceChildren(...guesses.map((g) => h('span', { class: 'chip c-' + colour(g) }, BY_ID[g].name)));
-    requestAnimationFrame(() => frame(route.concat(guesses)));
+    requestAnimationFrame(() => frame((showRoute ? route : [a, b]).concat(guesses)));
     count();
   }
   function guess() {

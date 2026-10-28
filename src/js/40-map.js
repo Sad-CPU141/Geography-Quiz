@@ -23,7 +23,7 @@ function mapGame(api) {
   const M = window.GS_MAP, view = mapView(M, S.session.cfg), m = M[view.map];
   // playable = countries you can tap. Normally just the ones in this run (the rest are grey); with
   // 🌍 All countries on the map (cfg.allMap) every country is live, so you can't tell the answers by colour.
-  const ids = sec.ids, playable = S.session.cfg.allMap ? new Set(DATA.map((c) => c.id)) : new Set(ids);
+  const ids = sec.ids, playable = S.session.cfg.allMap && !listing ? new Set(DATA.map((c) => c.id)) : new Set(ids); // Name them all: never (you'd not know what to name)
   const queue = ids.slice();
   const tries = res.tries;
   let revealed = false, ended = false, must = null; // must = a missed country you have to tap to go on

@@ -1,7 +1,7 @@
-/* Geography Speedrun 80ec61f81b — built from src/js/ by build.js. Edit src/, not this file. */
+/* Geography Speedrun c28efb4de2 — built from src/js/ by build.js. Edit src/, not this file. */
 (function () {
 'use strict';
-const APP_VERSION = "80ec61f81b";
+const APP_VERSION = "c28efb4de2";
 /* ---- core: data, answer matching, runs, challenge codes (no DOM; tested by tests/run.js) ---- */
 const DATA = window.GS_DATA.countries;
 const BY_ID = Object.fromEntries(DATA.map((c) => [c.id, c]));
@@ -49,7 +49,7 @@ const GAMES = [
   { id: 'clues', label: 'Clue reveal', em: '🕵️', desc: 'Guess from clues', more: true },
   { id: 'letter', label: 'Letter rush', em: '🔤', desc: 'Countries starting with…', more: true },
   { id: 'scramble', label: 'Unscramble', em: '🔀', desc: 'Unjumble the name', more: true },
-  { id: 'currency', label: 'Currency & people', em: '💰', desc: 'Kwacha? Malagasy?', more: true },
+  { id: 'currency', label: 'Currency & people', em: '💰', desc: 'Kwacha? Malagasy?', more: true, retired: true }, // removed (owner); kept so old codes keep their places
   { id: 'flagpick', label: 'Flag finder', em: '🔎', desc: 'Name → find its flag', more: true },
 ];
 // Setup groups the games in tabs (a game can be in more than one).
@@ -57,9 +57,20 @@ const GAME_CATS = [
   { id: 'classic', label: 'Classic', games: ['flags', 'map', 'capitals', 'shapes'] },
   { id: 'maps', label: 'Map', games: ['map', 'mapname', 'flagmap', 'all', 'borders', 'chain'] },
   { id: 'flags', label: 'Flags', games: ['flags', 'flagpick', 'flagmap'] },
-  { id: 'words', label: 'Words', games: ['capitals', 'revcap', 'scramble', 'letter', 'currency', 'lang'] },
+  { id: 'words', label: 'Words', games: ['capitals', 'revcap', 'scramble', 'letter', 'lang'] },
   { id: 'puzzles', label: 'Puzzles', games: ['clues', 'hot', 'closer', 'duel', 'chain'] },
 ];
+// Per-game "how many" (setup): country games take a number of countries (normal = all of the run's); the others a
+// number of rounds/puzzles/letters (normal = def). opts = the choices offered.
+const COUNTRY_COUNT_GAMES = ['flags', 'map', 'capitals', 'shapes', 'revcap', 'mapname', 'flagmap', 'all', 'flagpick'];
+const GAME_COUNTS = {
+  borders: { def: 0, opts: [5, 10, 20, 30], unit: 'countries' },
+  duel: { def: 20, opts: [5, 10, 20, 30], unit: 'rounds' }, lang: { def: 20, opts: [5, 10, 20, 30], unit: 'rounds' },
+  closer: { def: 20, opts: [5, 10, 20, 30], unit: 'rounds' }, chain: { def: 5, opts: [1, 2, 3, 5, 8, 10], unit: 'puzzles' },
+  hot: { def: 3, opts: [1, 2, 3, 5, 8], unit: 'countries' }, clues: { def: 10, opts: [3, 5, 10, 15, 20], unit: 'countries' },
+  letter: { def: 5, opts: [1, 3, 5, 8, 10], unit: 'letters' }, scramble: { def: 15, opts: [5, 10, 15, 20, 30], unit: 'names' },
+};
+COUNTRY_COUNT_GAMES.forEach((g) => { GAME_COUNTS[g] = { def: 0, opts: [5, 10, 15, 20, 30, 50], unit: 'countries' }; });
 const MAP_GAMES = new Set(['map', 'mapname', 'flagmap', 'all']);
 // Games that draw the world map (the map file is loaded before they start).
 const NEEDS_MAP = new Set(['map', 'mapname', 'flagmap', 'all', 'chain']);
@@ -148,14 +159,19 @@ function makeBoard(cfg) {
     // A practice run of your misses brings its own list of countries (cfg.custom[game]).
     const ids = cfg.custom && cfg.custom[g] ? cfg.custom[g].slice().sort() : cfgPool(cfg, i);
     const sec = { game: g, kind: kindOfGame(g), ids: shuffle(ids, r) };
+    // How many questions this game has (setup's per-game number, cfg.counts[game]); 0/none = the normal amount.
+    const want = cfg.counts && cfg.counts[g] > 0 ? cfg.counts[g] : 0;
+    const N = (normal) => want || normal;
+    if (want && COUNTRY_COUNT_GAMES.includes(g)) sec.ids = sec.ids.slice(0, want);
     if (g === 'borders') {
       // Countries with at least one land neighbour in the game; each neighbour is one answer ("de>fr").
       sec.countries = sec.ids.filter((id) => BY_ID[id].nb.length);
+      if (want) sec.countries = sec.countries.slice(0, want);
       sec.ids = sec.countries.flatMap((id) => BY_ID[id].nb.map((n) => id + '>' + n));
     } else if (g === 'duel') {
       // Up to 20 pairs; the two areas always differ by more than 10%, so every round has a clear answer.
       const left = sec.ids.slice(), pairs = [];
-      while (left.length > 1 && pairs.length < 20) {
+      while (left.length > 1 && pairs.length < N(20)) {
         const a = left.shift();
         const j = left.findIndex((b) => Math.abs(BY_ID[a].area - BY_ID[b].area) > 0.1 * Math.max(BY_ID[a].area, BY_ID[b].area));
         if (j < 0) continue;
@@ -165,22 +181,24 @@ function makeBoard(cfg) {
       sec.ids = pairs;
     } else if (g === 'chain') {
       // 5 puzzles "a~b": two countries joined by land, 2–5 countries apart on the shortest route.
-      sec.ids = chainPuzzles(sec.ids, r, 5);
+      sec.ids = chainPuzzles(sec.ids, r, N(5));
     } else if (g === 'hot') {
-      sec.ids = sec.ids.slice(0, 5); // 5 mystery countries
+      sec.ids = sec.ids.slice(0, N(3)); // 3 mystery countries (unlimited guesses each)
     } else if (g === 'closer') {
-      // Up to 20 "t|a|b": which of a, b is closer to t? Always more than 20% apart, so there's a clear answer.
+      // Up to 20 "t|a|b": which of a, b is closer to t?
       const from = sec.ids.length >= 8 ? sec.ids : shuffle(DATA.map((c) => c.id).sort(), r), rounds = [];
-      for (let k = 0; k < 400 && rounds.length < 20; k++) {
+      for (let k = 0; k < 400 && rounds.length < N(20); k++) {
         const [t, a, b] = shuffle(from, r).slice(0, 3);
         const da = km(t, a), db = km(t, b);
-        if (Math.abs(da - db) > 0.2 * Math.max(da, db) && !rounds.some((x) => x.startsWith(t + '|'))) rounds.push(t + '|' + a + '|' + b);
+        // Harder (owner): the two are close in distance — 7–22% apart — so you have to think, but there's still a clear answer.
+        const gap = Math.abs(da - db) / Math.max(da, db);
+        if (gap > 0.07 && gap < (k < 300 ? 0.22 : 0.5) && !rounds.some((x) => x.startsWith(t + '|'))) rounds.push(t + '|' + a + '|' + b);
       }
       sec.ids = rounds;
     } else if (g === 'clues') {
-      sec.ids = sec.ids.slice(0, 10);
+      sec.ids = sec.ids.slice(0, N(10));
     } else if (g === 'scramble') {
-      sec.ids = sec.ids.slice(0, 15);
+      sec.ids = sec.ids.slice(0, N(15));
       sec.scr = {}; sec.ids.forEach((id) => { sec.scr[id] = scrambleName(BY_ID[id].name, r); });
     } else if (g === 'currency') {
       // Up to 15 rounds: a currency or a demonym that belongs to only one country in the game ("id~c" / "id~d").
@@ -192,12 +210,12 @@ function makeBoard(cfg) {
       });
       sec.ids = keys.slice(0, 15);
     } else if (g === 'letter') {
-      // 3 letters, each with at least 2 countries starting with it; you name them all (45 s per letter).
+      // 5 letters, each with at least 2 countries starting with it; name as many as you can (12 s per letter).
       const by = {};
       sec.ids.forEach((id) => { const L = norm(BY_ID[id].name)[0].toUpperCase(); (by[L] = by[L] || []).push(id); });
       let letters = Object.keys(by).filter((L) => by[L].length >= 2).sort();
       if (!letters.length) letters = Object.keys(by).sort();
-      sec.letters = shuffle(letters, r).slice(0, 3).map((L) => ({ L, ids: by[L].slice().sort() }));
+      sec.letters = shuffle(letters, r).slice(0, N(5)).map((L) => ({ L, ids: by[L].slice().sort() }));
       sec.ids = sec.letters.flatMap((x) => x.ids);
     } else if (g === 'flagpick') {
       sec.grid = shuffle(sec.ids, r); // the flags in the order they're laid out
@@ -207,8 +225,8 @@ function makeBoard(cfg) {
       // A region with under 10 languages (the Americas) also gets their other sentences, up to 10 rounds.
       const langs = LANGS.filter((l) => l.countries.some((c) => here.has(c)));
       // Each language once, with one of its sentences picked at random (so you can't learn "this sentence = X").
-      let ids = shuffle(langs.map((l) => l.k), r).slice(0, 20).map((k) => k + '~' + Math.floor(r() * LANG_BY[k].texts.length));
-      if (ids.length < 10) ids = ids.concat(shuffle(langs.flatMap((l) => l.texts.map((t, n) => l.k + '~' + n)).filter((id) => !ids.includes(id)), r).slice(0, 10 - ids.length));
+      let ids = shuffle(langs.map((l) => l.k), r).slice(0, N(20)).map((k) => k + '~' + Math.floor(r() * LANG_BY[k].texts.length));
+      if (ids.length < Math.min(10, N(20))) ids = ids.concat(shuffle(langs.flatMap((l) => l.texts.map((t, n) => l.k + '~' + n)).filter((id) => !ids.includes(id)), r).slice(0, Math.min(10, N(20)) - ids.length));
       sec.ids = shuffle(ids, r);
       sec.opts = {};
       sec.ids.forEach((id) => { sec.opts[id] = langOptions(id.split('~')[0], here, r); });
@@ -368,11 +386,15 @@ function withOpts(cfg, o) {
   if (o && o.langType && cfg.kind === 'board' && cfg.games.includes('lang')) cfg.langType = true; else delete cfg.langType;
   if (o && o.strict && hasTypingGame(cfg)) cfg.strict = true; else delete cfg.strict;
   if (o && o.allMap && hasMapGame(cfg)) cfg.allMap = true; else delete cfg.allMap;
+  // Per-game numbers, only for games in the run (and only real ones).
+  const counts = {};
+  if (cfg.kind === 'board' && o && o.counts) cfg.games.forEach((g) => { const n = Math.floor(+o.counts[g] || 0); if (n > 0 && n < 1000) counts[g] = n; });
+  if (Object.keys(counts).length) cfg.counts = counts; else delete cfg.counts;
   return cfg;
 }
 // Where (after the "+" too): R<mask> = several continents (bit i = CONTINENTS[i]), C<n> = n random countries.
 const regionMask = (cfg) => (cfg.regions || []).reduce((m, r) => m | (1 << CONTINENTS.indexOf(r)), 0);
-const optLetters = (cfg) => (cfg.hard ? 'N' : '') + (cfg.langType ? 'T' : '') + (cfg.strict ? 'E' : '') + (cfg.allMap ? 'A' : '') + (cfg.regions && cfg.regions.length ? 'R' + regionMask(cfg) : '') + (cfg.limit ? 'C' + cfg.limit : '');
+const optLetters = (cfg) => (cfg.hard ? 'N' : '') + (cfg.langType ? 'T' : '') + (cfg.strict ? 'E' : '') + (cfg.allMap ? 'A' : '') + (cfg.regions && cfg.regions.length ? 'R' + regionMask(cfg) : '') + (cfg.limit ? 'C' + cfg.limit : '') + (cfg.counts ? 'Q' + cfg.games.map((g) => cfg.counts[g] || 0).join('.') : '');
 // Several continents / a random number: tidy into the canonical form (1 continent → region; all 6 → world).
 function withWhere(cfg, regions, limit) {
   delete cfg.regions; delete cfg.limit;
@@ -408,7 +430,9 @@ function decodeCode(text) {
     withWhere(cfg, mask ? CONTINENTS.filter((r, i) => +mask[1] & (1 << i)) : [], lim ? +lim[1] : 0);
     if (cfg.kind === 'quick' && cfg.count > cfgPool(cfg).length) return null;
   }
-  return withOpts(cfg, { hard: /N/.test(f), langType: /T/.test(f), strict: /E/.test(f), allMap: /A/.test(f) });
+  const q = /Q([\d.]+)/.exec(f), counts = {};
+  if (q) q[1].split('.').forEach((n, k) => { if (cfg.games && cfg.games[k] && +n > 0) counts[cfg.games[k]] = +n; });
+  return withOpts(cfg, { hard: /N/.test(f), langType: /T/.test(f), strict: /E/.test(f), allMap: /A/.test(f), counts });
 }
 function decodeBase(text) {
   const t = String(text || '').toUpperCase().replace(/[IL]/g, '1').replace(/O/g, '0').replace(/[^0-9A-Z]/g, '');
@@ -462,7 +486,7 @@ function whereLabel(cfg) {
 }
 function cfgTotal(cfg) { return cfg.kind === 'board' ? makeBoard(cfg).reduce((n, sec) => n + sec.ids.length, 0) : cfg.count; }
 function cfgLabel(cfg) {
-  if (cfg.kind === 'board') return cfg.games.map((g) => gameOf(g).label).join(' + ') + ' · ' + (cfg.custom ? 'My misses' : whereLabel(cfg)) + (cfg.hard ? ' · No borders' : '') + (cfg.langType ? ' · Typed' : '') + (cfg.strict ? ' · One shot' : '') + (cfg.allMap ? ' · All countries' : '') + (cfg.help ? ' · Spelling help' : '');
+  if (cfg.kind === 'board') return cfg.games.map((g) => gameOf(g).label + (cfg.counts && cfg.counts[g] ? ' ×' + cfg.counts[g] : '')).join(' + ') + ' · ' + (cfg.custom ? 'My misses' : whereLabel(cfg)) + (cfg.hard ? ' · No borders' : '') + (cfg.langType ? ' · Typed' : '') + (cfg.strict ? ' · One shot' : '') + (cfg.allMap ? ' · All countries' : '') + (cfg.help ? ' · Spelling help' : '');
   return [modeOf(cfg.mode).label, whereLabel(cfg), cfg.count === cfgPool(cfg).length ? 'All ' + cfg.count : String(cfg.count), styleOf(cfg.style).label].join(' · ') + ' · Quick';
 }
 const bestKey = (cfg) => cfg.kind === 'board' ? ['b', cfg.games.join('+'), cfg.region].join('|') + (optLetters(cfg) ? '|' + optLetters(cfg) : '') : [cfg.mode, cfg.region, cfg.count, cfg.style].join('|') + (optLetters(cfg) ? '|' + optLetters(cfg) : '');
@@ -552,7 +576,7 @@ function dailyCfg(day) {
 }
 const dayLabel = (day) => new Date(day * 86400000).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
 
-window.GS = { km, bearing, closerOf, hops, shortestRoute, CURRENCY_COUNT, DEMONYM_COUNT, GAME_CATS, NEEDS_MAP, withWhere, cfgPool, whereLabel, CONTINENTS, withOpts, langAnswer, langsReady, langOf, langText, recordMisses, topMisses, todayNum, dailyCfg, duelWinner, GAMES, suggest, editDistance, norm, isRight, answersFor, makeRun, makeBoard, encodeCode, decodeCode, fmtTime, pool, rng, better, compare, GAME_ORDERS, cfgLabel, DATA };
+window.GS = { GAME_COUNTS, COUNTRY_COUNT_GAMES, km, bearing, closerOf, hops, shortestRoute, CURRENCY_COUNT, DEMONYM_COUNT, GAME_CATS, NEEDS_MAP, withWhere, cfgPool, whereLabel, CONTINENTS, withOpts, langAnswer, langsReady, langOf, langText, recordMisses, topMisses, todayNum, dailyCfg, duelWinner, GAMES, suggest, editDistance, norm, isRight, answersFor, makeRun, makeBoard, encodeCode, decodeCode, fmtTime, pool, rng, better, compare, GAME_ORDERS, cfgLabel, DATA };
 Object.defineProperty(window.GS, 'LANGS', { get: () => (langsReady(), LANGS) });
 Object.defineProperty(window.GS, 'LANG_BY', { get: () => (langsReady(), LANG_BY) });
 if (window.GS_NO_UI) return;
@@ -733,6 +757,7 @@ function nameField() {
 function setup() {
   const st = S.setup;
   if (S.liveNext) { st.kind = 'board'; st.group = 'live'; } // picking the next round of an online race
+  st.games = (st.games || []).filter((g) => gameOf(g) && !gameOf(g).retired); if (!st.games.length) st.games = ['flags'];
   const save = () => store.set('gs_setup_v2', st);
   const set = (k) => (v) => { st[k] = v; save(); setup(); };
   const regionItems = REGIONS.map((r) => ({ id: r.id, label: r.short || r.label, sub: pool(r.id).length + '' }));
@@ -758,11 +783,21 @@ function setup() {
     const move = (g, d) => { const i = st.games.indexOf(g), j = i + d; if (j < 0 || j >= st.games.length) return; [st.games[i], st.games[j]] = [st.games[j], st.games[i]]; save(); setup(); };
     const toggle = (g) => { if (st.games.includes(g)) { if (st.games.length === 1) return toast('Pick at least one game'); st.games = st.games.filter((x) => x !== g); } else st.games.push(g); save(); setup(); };
     const cat = GAME_CATS.find((c) => c.id === st.cat) || GAME_CATS[0];
+    if (!st.counts || typeof st.counts !== 'object') st.counts = {};
+    // How many questions for this game: "All" (or its normal number) or a smaller/bigger one.
+    const howMany = (g) => {
+      const c = GAME_COUNTS[g]; if (!c) return null;
+      const max = COUNTRY_COUNT_GAMES.includes(g) || g === 'borders' ? n : Infinity;
+      const opts = [0].concat(c.opts.filter((x) => x < max && x !== c.def));
+      const cur = opts.includes(st.counts[g] || 0) ? st.counts[g] || 0 : 0;
+      return h('select', { class: 'howmany', 'aria-label': 'How many ' + c.unit + ' in ' + gameOf(g).label, onchange: (e) => { const v = +e.target.value; if (v) st.counts[g] = v; else delete st.counts[g]; save(); setup(); } },
+        opts.map((x) => h('option', { value: String(x), selected: x === cur }, x ? x + ' ' + c.unit : (c.def ? c.def + ' ' + c.unit : 'All ' + c.unit))));
+    };
     const picked = st.games.map((g, i) => {
       const G = gameOf(g);
       return h('div', { class: 'game-row on', 'data-game': g },
         h('span', { class: 'game-num' }, String(i + 1)),
-        h('span', { class: 'game-txt' }, h('b', null, G.em + ' ' + G.label)),
+        h('span', { class: 'game-txt' }, h('b', null, G.em + ' ' + G.label), howMany(g)),
         h('span', { class: 'game-move' },
           st.games.length > 1 ? [h('button', { class: 'iconbtn sm', 'aria-label': 'Move ' + G.label + ' up', disabled: i === 0, onclick: () => move(g, -1) }, '↑'),
             h('button', { class: 'iconbtn sm', 'aria-label': 'Move ' + G.label + ' down', disabled: i === st.games.length - 1, onclick: () => move(g, 1) }, '↓')] : null,
@@ -776,11 +811,7 @@ function setup() {
     return h('div', { class: 'card' },
       h('p', { class: 'eyebrow' }, 'Your run'),
       h('div', { class: 'games picked' }, picked),
-      h('div', { class: 'cat-tabs', role: 'tablist' }, GAME_CATS.map((c) => {
-        const n = c.games.filter((g) => st.games.includes(g)).length;
-        return h('button', { class: 'cat-tab', role: 'tab', 'data-cat': c.id, 'aria-selected': String(c.id === cat.id), onclick: () => { st.cat = c.id; save(); setup(); } }, c.label, n ? h('small', null, String(n)) : null);
-      })),
-      h('div', { class: 'game-grid' }, cat.games.map(row)));
+      h('button', { class: 'btn primary add-games', onclick: () => gameBrowser(st, () => { save(); setup(); }) }, '＋ Add games'));
   }
   function quickCards() {
     const counts = (n > 60 ? [10, 25, 50] : [10, 20]).filter((x) => x < n).concat([n]);
@@ -892,6 +923,91 @@ function credits() {
     h('button', { class: 'btn ghost small', onclick: () => bg.remove() }, 'Close'));
 }
 
+
+/* ---------------- the game browser (Roblox style) ----------------
+   "＋ Add games" opens a sheet of game cards: a picture of the game, its name and a ＋ to add it. Tap a card for
+   a bigger picture, what it is and an example. Tabs filter by kind (All, Classic, Map, Flags, Words, Puzzles). */
+const GAME_INFO = {
+  flags: ['Every flag of the region on one board. Pick a tile and type the country.', 'A red circle on white → Japan'],
+  map: ['A country is named; tap it on the map. Three wrong taps and it flashes red.', 'Find: Peru → tap it'],
+  capitals: ['Every country of the region; type each one\'s capital.', 'Kenya → Nairobi'],
+  shapes: ['Country outlines only — no map, no names. Type the country.', 'A boot shape → Italy'],
+  revcap: ['Capitals on the tiles; type the country each one belongs to.', 'Canberra → Australia'],
+  mapname: ['A country lights up gold on the map and the map flies to it. Type its name.', 'Gold country in South America → Bolivia'],
+  borders: ['A country is shown; name every country it shares a land border with.', 'Spain → France, Portugal, Andorra'],
+  flagmap: ['A flag is shown; tap its country on the map.', 'Maple-leaf flag → tap Canada'],
+  duel: ['Two countries; tap the one with more land area.', 'Egypt or Nigeria? → Egypt'],
+  lang: ['A real sentence in an official language; pick (or type) which language it is.', '"Alle Menschen sind frei…" → German'],
+  chain: ['Get from one country to another over land by naming the countries in between, like Travle. Only the countries you name appear on the map. At the end you see the shortest route.', 'France → Poland: Germany'],
+  all: ['No prompts: type every country of the region you can remember. Each one lights up on the map.', 'Europe: France, Spain, Italy…'],
+  hot: ['A mystery country on a globe, like Globle. Guess any country; it\'s painted redder the closer it is. Unlimited guesses.', 'Brazil: 1,200 km → Bolivia: bordering → Paraguay ✓'],
+  closer: ['Which of two countries is closer to a third? The two are close calls.', 'Closer to Japan: Philippines or Thailand?'],
+  clues: ['One clue to start; every wrong guess shows the next one. Fewer clues = better.', 'About 88,000 km², landlocked… → Hungary'],
+  letter: ['A letter and 12 seconds: name as many countries starting with it as you can.', 'S → Spain, Sweden, Sudan…'],
+  scramble: ['A country\'s letters, mixed up. Type the real name.', 'NDEWES → Sweden'],
+  flagpick: ['A country is named; find its flag among all the flags (Seterra style).', 'Find: Ireland → tap 🇮🇪'],
+};
+const artFlag = (id) => h('img', { class: 'art-flag', src: BY_ID[id].flag, alt: '' });
+function gameArt(g) {
+  const A = (cls, ...kids) => h('div', { class: 'art art-' + cls }, ...kids);
+  switch (g) {
+    case 'flags': return A('grid', ...['jp', 'br', 'ca', 'ke'].map(artFlag));
+    case 'map': return A('shape', shapeSvg('pe', 'art-shape'), h('span', { class: 'art-pin' }, '📍'), h('span', { class: 'art-chip' }, 'Find: Peru'));
+    case 'capitals': return A('text', h('small', null, 'Kenya'), h('b', null, 'Nairobi'));
+    case 'shapes': return A('shape', shapeSvg('it', 'art-shape'), h('span', { class: 'art-q' }, '?'));
+    case 'revcap': return A('text', h('small', null, 'Canberra'), h('b', null, '→ ?'));
+    case 'mapname': return A('shape gold', shapeSvg('bo', 'art-shape'), h('span', { class: 'art-chip' }, 'Name it'));
+    case 'borders': return A('shape', shapeSvg('es', 'art-shape'), h('span', { class: 'art-chips' }, h('i', { class: 'ok' }, 'France'), h('i', null, '?'), h('i', null, '?')));
+    case 'flagmap': return A('flagpin', artFlag('ca'), h('span', { class: 'art-pin' }, '📍'));
+    case 'duel': return A('vs', artFlag('eg'), h('b', null, '⚖️'), artFlag('ng'));
+    case 'lang': return A('quote', h('b', null, '"Alle Menschen sind frei…"'), h('small', null, 'Which language?'));
+    case 'chain': return A('chain', artFlag('fr'), h('i', { class: 'ok' }, 'Germany'), artFlag('pl'));
+    case 'all': return A('list', ...['France', 'Spain', 'Italy', 'Peru', '?', '?'].map((n) => h('i', { class: n === '?' ? '' : 'ok' }, n)));
+    case 'hot': return A('globe', h('span', { class: 'art-ball' }, h('i', { style: { left: '30%', top: '35%', background: '#b30000' } }), h('i', { style: { left: '55%', top: '55%', background: '#fc8d59' } }), h('i', { style: { left: '42%', top: '68%', background: '#fdd49e' } })));
+    case 'closer': return A('closer', artFlag('jp'), h('small', null, 'closer?'), h('span', { class: 'art-two' }, artFlag('ph'), artFlag('th')));
+    case 'clues': return A('clues', h('i', null, '📐 About 88,000 km²'), h('i', null, '🏖️ Landlocked'), h('i', { class: 'dim' }, '🗣️ ?'));
+    case 'letter': return A('letter', h('b', null, 'S'), h('span', { class: 'art-chips' }, h('i', { class: 'ok' }, 'Spain'), h('i', { class: 'ok' }, 'Sudan'), h('i', null, '?')));
+    case 'scramble': return A('scramble', ...'NDEWES'.split('').map((c) => h('i', null, c)));
+    case 'flagpick': return A('grid six', ...['ie', 'ci', 'it', 'mx', 'in', 'ne'].map((id, k) => { const im = artFlag(id); if (!k) im.classList.add('hit'); return im; }));
+    default: return A('text', h('b', null, gameOf(g).em));
+  }
+}
+function gameBrowser(st, done) {
+  let tab = st.browseTab || 'all', open = null;
+  const sheet = h('div', { class: 'gb-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Games' });
+  const bg = h('div', { class: 'gb-bg', onclick: (e) => { if (e.target === bg) close(); } }, sheet);
+  const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); if (open) { open = null; draw(); } else close(); } };
+  function close() { document.removeEventListener('keydown', onKey, true); bg.remove(); st.browseTab = tab; done(); }
+  const toggle = (g) => {
+    if (st.games.includes(g)) { if (st.games.length === 1) return toast('Pick at least one game'); st.games = st.games.filter((x) => x !== g); } else st.games.push(g);
+    draw();
+  };
+  const addBtn = (g, big) => { const on = st.games.includes(g); return h('button', { class: 'gb-add' + (on ? ' on' : '') + (big ? ' big' : ''), 'aria-label': (on ? 'Remove ' : 'Add ') + gameOf(g).label, onclick: (e) => { e.stopPropagation(); toggle(g); } }, on ? (big ? '✓ In your run' : '✓') : (big ? '＋ Add to run' : '＋')); };
+  function draw() {
+    const head = h('div', { class: 'gb-head' },
+      open ? h('button', { class: 'iconbtn', 'aria-label': 'Back to all games', onclick: () => { open = null; draw(); } }, '←') : h('span', { class: 'iconspace' }),
+      h('b', null, open ? gameOf(open).label : 'Games' + (st.games.length ? ' · ' + st.games.length + ' picked' : '')),
+      h('button', { class: 'iconbtn', 'aria-label': 'Done', onclick: close }, '✕'));
+    if (open) {
+      const info = GAME_INFO[open] || [gameOf(open).desc, ''];
+      sheet.replaceChildren(head, h('div', { class: 'gb-detail' }, h('div', { class: 'gb-art big' }, gameArt(open)),
+        h('div', { class: 'gb-title' }, h('b', null, gameOf(open).em + ' ' + gameOf(open).label), addBtn(open, true)),
+        h('p', null, info[0]), info[1] ? h('p', { class: 'gb-example' }, h('small', null, 'Example'), h('span', null, info[1])) : null));
+      return;
+    }
+    const tabs = [{ id: 'all', label: 'All', games: GAMES.filter((x) => !x.retired).map((x) => x.id) }].concat(GAME_CATS);
+    const cur = tabs.find((t) => t.id === tab) || tabs[0];
+    sheet.replaceChildren(head,
+      h('div', { class: 'cat-tabs' }, tabs.map((t) => h('button', { class: 'cat-tab', 'data-cat': t.id, 'aria-selected': String(t.id === cur.id), onclick: () => { tab = t.id; draw(); } }, t.label))),
+      h('div', { class: 'gb-grid' }, cur.games.map((g) => h('div', { class: 'gb-card' + (st.games.includes(g) ? ' on' : ''), 'data-game': g, role: 'button', tabindex: '0', onclick: () => { open = g; draw(); sheet.scrollTop = 0; }, onkeydown: (e) => { if (e.key === 'Enter') { open = g; draw(); } } },
+        h('div', { class: 'gb-art' }, gameArt(g)),
+        h('div', { class: 'gb-foot' }, h('b', null, gameOf(g).label), addBtn(g))))));
+  }
+  draw();
+  document.addEventListener('keydown', onKey, true);
+  document.body.appendChild(bg);
+}
+
 /* ---- a session: one run, played by one or more players (pass the phone) ---- */
 const imgCache = {};
 function preloadFlags(ids) {
@@ -920,10 +1036,21 @@ function loadMap() {
   return mapLoading;
 }
 
+// Extra files some games need: the language sentences, and the globe (d3-geo + outlines) for Hot or cold.
+let globeLoading = null;
+function needGlobe() {
+  if (window.d3 && window.d3.geoOrthographic && window.GS_GLOBE) return Promise.resolve();
+  const load = (src) => new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+  if (!globeLoading) globeLoading = load('vendor/d3/d3-array.min.js').then(() => load('vendor/d3/d3-geo.min.js')).then(() => load('globe.js?v=' + APP_VERSION)).catch((e) => { globeLoading = null; throw e; });
+  return globeLoading;
+}
+const needsGlobe = (cfg) => !!(cfg && cfg.kind === 'board' && cfg.games.includes('hot'));
+const assetsReady = (cfg) => (!usesLangs(cfg) || langsReady()) && (!needsGlobe(cfg) || !!(window.d3 && window.d3.geoOrthographic && window.GS_GLOBE));
+const needAssets = (cfg) => Promise.all([usesLangs(cfg) ? needLangs() : null, needsGlobe(cfg) ? needGlobe() : null]);
 function startSession(cfg, players, challenge, daily, practice) {
-  if (usesLangs(cfg) && !langsReady()) {
+  if (!assetsReady(cfg)) {
     mount(h('div', { class: 'app' }, h('div', { class: 'cover' }, h('p', { class: 'muted' }, 'Loading…'))));
-    needLangs().then(() => startSession(cfg, players, challenge, daily, practice), () => { toast('Couldn\'t load the languages. Check your connection.'); home(); });
+    needAssets(cfg).then(() => startSession(cfg, players, challenge, daily, practice), () => { toast('Couldn\'t load the game. Check your connection.'); home(); });
     return;
   }
   // One go at the daily run per day on this device.
@@ -1366,7 +1493,7 @@ function mapGame(api) {
   const M = window.GS_MAP, view = mapView(M, S.session.cfg), m = M[view.map];
   // playable = countries you can tap. Normally just the ones in this run (the rest are grey); with
   // 🌍 All countries on the map (cfg.allMap) every country is live, so you can't tell the answers by colour.
-  const ids = sec.ids, playable = S.session.cfg.allMap ? new Set(DATA.map((c) => c.id)) : new Set(ids);
+  const ids = sec.ids, playable = S.session.cfg.allMap && !listing ? new Set(DATA.map((c) => c.id)) : new Set(ids); // Name them all: never (you'd not know what to name)
   const queue = ids.slice();
   const tries = res.tries;
   let revealed = false, ended = false, must = null; // must = a missed country you have to tap to go on
@@ -2066,12 +2193,13 @@ function currencyGame(api) {
    After the last clue, "Give up on this one" counts it missed. */
 function cluesFor(id) {
   const c = BY_ID[id], round2 = (a) => { const p = Math.pow(10, Math.max(0, String(Math.round(a)).length - 2)); return Math.round(a / p) * p; };
+  // Hardest first (owner: the continent first was too easy).
   const list = [
-    ['🌍', 'Continent', regionOf(c.region).label],
-    ['🏖️', 'Coast', (c.land ? 'Landlocked' : 'Has a coastline') + ' · ' + (c.nb.length ? c.nb.length + (c.nb.length === 1 ? ' land neighbour' : ' land neighbours') : 'no land neighbours')],
     ['📐', 'Size', 'About ' + round2(c.area).toLocaleString('en-US') + ' km²'],
-    ['🧭', 'Part of the world', c.sub || regionOf(c.region).label],
+    ['🏖️', 'Coast', (c.land ? 'Landlocked' : 'Has a coastline') + ' · ' + (c.nb.length ? c.nb.length + (c.nb.length === 1 ? ' land neighbour' : ' land neighbours') : 'no land neighbours')],
     ['🗣️', 'Language' + (c.lang.length > 1 ? 's' : ''), c.lang.slice(0, 3).join(', ') || '—'],
+    ['🌍', 'Continent', regionOf(c.region).label],
+    ['🧭', 'Part of the world', c.sub || regionOf(c.region).label],
     ['💰', 'Currency', c.cur.join(', ') || '—'],
     ['🏛️', 'Capital starts with', c.capital[0]],
   ];
@@ -2081,27 +2209,40 @@ function cluesFor(id) {
   return list;
 }
 function cluesGame(api) {
+  // You start with one clue; every wrong guess (a real country) shows the next one. No clues left → missed.
+  // Pass skips the country (missed). One shot: the first wrong guess ends it.
   const { sec, res } = api;
-  let i = 0, shown = 1, busy = false, revealed = false;
+  let i = 0, shown = 1, busy = false, revealed = false, wrong = [];
   const strict = !!S.session.cfg.strict;
   const foundEl = h('span', { class: 'found num' });
-  const input = countryBox('Which country?');
+  const input = countryBox('Guess the country…');
   const sugEl = h('div', { class: 'suggest', 'aria-live': 'polite', hidden: true });
   const list = h('ol', { class: 'clues' });
+  const tried = h('div', { class: 'chain-chips' });
   const verdict = h('p', { class: 'lang-verdict center' });
-  const more = h('button', { class: 'btn ghost small', style: { width: 'auto', flex: '0 0 auto' }, onmousedown: (e) => e.preventDefault(), onclick: () => nextClue() }, 'Next clue');
+  const pass = h('button', { class: 'btn ghost small', style: { width: 'auto', flex: '0 0 auto' }, onmousedown: (e) => e.preventDefault(), onclick: () => end(false) }, 'Pass');
   const footer = h('div', { class: 'reveal-bar', hidden: true });
   const head = boardHead(api, [h('div', { class: 'progress' }, foundEl)]);
-  mount(h('div', { class: 'app grid-run' }, head, h('div', { class: 'duel' }, list, h('div', { class: 'row lang-type' }, input, more), sugEl, verdict), footer));
-  const help = spellingHelp(input, sugEl, 'country', () => sec.ids[i], () => end(true), null, strict ? () => { shake(input); end(false); } : null);
+  mount(h('div', { class: 'app grid-run' }, head, h('div', { class: 'duel' }, list, h('div', { class: 'row lang-type' }, input, pass), sugEl, tried, verdict), footer));
+  const help = spellingHelp(input, sugEl, 'country', () => sec.ids[i], () => end(true), (text) => !!countryFromText(text), () => wrongGuess());
   function count() { foundEl.textContent = res.found.length + ' right · ' + Math.max(0, sec.ids.length - i - (busy ? 1 : 0)) + ' left'; }
   function draw() {
     const cl = cluesFor(sec.ids[i]);
     list.replaceChildren(...cl.slice(0, shown).map(([em, label, text]) => h('li', null, h('span', { class: 'cl-em' }, em), h('small', null, label), text == null ? flagImg(sec.ids[i], 40) : h('b', null, text))));
-    more.textContent = shown < cl.length ? 'Next clue (' + (cl.length - shown) + ')' : 'Give up on this one';
+    tried.replaceChildren(...wrong.map((g) => h('span', { class: 'chip c-far' }, BY_ID[g].name)));
+    input.placeholder = 'Guess · clue ' + shown + '/' + cl.length;
     count();
   }
-  function nextClue() { if (busy || revealed) return; const n = cluesFor(sec.ids[i]).length; if (shown < n) { shown++; draw(); } else end(false); input.focus({ preventScroll: true }); }
+  function wrongGuess() {
+    if (busy || revealed) return;
+    const g = countryFromText(input.value);
+    if (!g) { shake(input); return; }
+    if (g === sec.ids[i]) return end(true);
+    shake(input); input.value = ''; help.clear();
+    if (!wrong.includes(g)) wrong.push(g);
+    if (strict || shown >= cluesFor(sec.ids[i]).length) return end(false);
+    shown++; draw();
+  }
   function end(right) {
     if (busy || revealed) return;
     busy = true; api.R.clock.pause(); input.disabled = true; help.clear();
@@ -2111,7 +2252,7 @@ function cluesGame(api) {
     verdict.className = 'lang-verdict center ' + (right ? 'ok' : 'bad');
     shown = cluesFor(id).length; draw(); count();
     setTimeout(() => {
-      busy = false; api.R.clock.resume(); i++; shown = 1;
+      busy = false; api.R.clock.resume(); i++; shown = 1; wrong = [];
       if (i >= sec.ids.length) { api.done(); return; }
       verdict.textContent = ''; verdict.className = 'lang-verdict center'; input.value = ''; input.disabled = false; draw(); window.scrollTo(0, 0); input.focus({ preventScroll: true });
     }, right ? 900 : 1800);
@@ -2120,7 +2261,7 @@ function cluesGame(api) {
   input.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return; e.preventDefault();
     if (busy || revealed || !input.value.trim()) return;
-    if (isRight(sec.ids[i], 'country', input.value)) end(true); else help.enter();
+    if (isRight(sec.ids[i], 'country', input.value)) end(true); else if (countryFromText(input.value)) wrongGuess(); else help.enter();
   });
   draw(); input.focus({ preventScroll: true });
   return {
@@ -2129,32 +2270,91 @@ function cluesGame(api) {
   };
 }
 
-/* Hot or cold: a mystery country. Each guess (any country) shows how far its centre is from the mystery
-   country's, and which way to go. 10 guesses each; then it's shown and counts as missed. */
-const HOT_TRIES = 10;
+/* Hot or cold (Globle style): a mystery country and a globe. Guess any country; it's painted on the globe by how
+   close it is to the mystery one (dark red = bordering or very close, pale = far away), with the distance
+   between their nearest borders. Unlimited guesses; "Reveal" gives up on that one (missed). 3 per game.
+   Needs d3-geo (vendor/d3, ISC) and src/globe.js (outlines) — loaded by needGlobe() when the run starts. */
+let globeFeatures = null;
+function globeFeature(id) {
+  if (!globeFeatures) {
+    globeFeatures = {};
+    Object.entries(window.GS_GLOBE).forEach(([k, rings]) => { globeFeatures[k] = { type: 'Feature', id: k, geometry: { type: 'MultiPolygon', coordinates: rings.map((r) => { const pts = []; for (let n = 0; n < r.length; n += 2) pts.push([r[n] / 5, r[n + 1] / 5]); return [pts]; }) } }; });
+  }
+  // Countries too small for the outlines: a small circle at their centre.
+  if (!globeFeatures[id]) globeFeatures[id] = { type: 'Feature', id, geometry: d3.geoCircle().center([BY_ID[id].ll[1], BY_ID[id].ll[0]]).radius(0.7)() };
+  return globeFeatures[id];
+}
+// Distance between two countries' nearest borders (0 = they touch), in km, from the outline points.
+const BORDER_KM = {};
+function borderKm(a, b) {
+  if (a === b) return 0;
+  const key = a < b ? a + b : b + a;
+  if (BORDER_KM[key] != null) return BORDER_KM[key];
+  if (BY_ID[a].nb.includes(b)) return (BORDER_KM[key] = 0);
+  const pts = (id) => { const g = globeFeature(id).geometry, out = []; (g.type === 'Polygon' ? [g.coordinates] : g.coordinates).forEach((p) => p[0].forEach((q) => out.push(q))); return out; };
+  const pa = pts(a), pb = pts(b), R = Math.PI / 180;
+  let best = Infinity;
+  for (const [x1, y1] of pa) {
+    const c1 = Math.cos(y1 * R);
+    for (const [x2, y2] of pb) {
+      const hv = Math.sin((y2 - y1) * R / 2) ** 2 + c1 * Math.cos(y2 * R) * Math.sin((x2 - x1) * R / 2) ** 2;
+      if (hv < best) best = hv;
+    }
+  }
+  return (BORDER_KM[key] = Math.round(2 * 6371 * Math.asin(Math.sqrt(best)) / 10) * 10);
+}
+const GLOBE_HEAT = [[0, '#7f0000'], [250, '#b30000'], [750, '#d7301f'], [1500, '#ef6548'], [2500, '#fc8d59'], [4000, '#fdbb84'], [6000, '#fdd49e'], [Infinity, '#fff3dc']];
+const globeColour = (d) => GLOBE_HEAT.find(([max]) => d <= max)[1];
 function hotGame(api) {
   const { sec, res } = api;
-  let i = 0, busy = false, revealed = false, guesses = [];
+  let i = 0, busy = false, revealed = false, guesses = [], rot = [0, -20], scale = 1, spin = 0;
   const foundEl = h('span', { class: 'found num' });
-  const input = countryBox('Guess a country…');
+  const input = countryBox('Guess any country…');
   const sugEl = h('div', { class: 'suggest', 'aria-live': 'polite', hidden: true });
-  const list = h('ul', { class: 'hotlist' });
-  const top = h('p', { class: 'eyebrow center' });
-  const verdict = h('p', { class: 'lang-verdict center' });
+  const list = h('ul', { class: 'hotlist' }), top = h('p', { class: 'eyebrow center' }), verdict = h('p', { class: 'lang-verdict center' });
+  const giveBtn = h('button', { class: 'btn ghost small', style: { width: 'auto', flex: '0 0 auto' }, onmousedown: (e) => e.preventDefault(), onclick: () => end(false) }, 'Reveal');
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg'); svg.setAttribute('class', 'globe'); svg.setAttribute('viewBox', '0 0 400 400');
+  const sphere = document.createElementNS(NS, 'path'); sphere.setAttribute('class', 'g-sea');
+  const grat = document.createElementNS(NS, 'path'); grat.setAttribute('class', 'g-grat');
+  const land = document.createElementNS(NS, 'g');
+  svg.append(sphere, grat, land);
+  const paths = {};
+  DATA.forEach((c) => { const p = document.createElementNS(NS, 'path'); p.setAttribute('class', 'g-cty'); land.appendChild(p); paths[c.id] = p; });
+  const zoom = h('div', { class: 'zoom' }, h('button', { class: 'iconbtn', 'aria-label': 'Zoom in', onclick: () => { scale = Math.min(4, scale * 1.4); render(); } }, '+'), h('button', { class: 'iconbtn', 'aria-label': 'Zoom out', onclick: () => { scale = Math.max(1, scale / 1.4); render(); } }, '−'));
   const footer = h('div', { class: 'reveal-bar', hidden: true });
   const head = boardHead(api, [h('div', { class: 'progress' }, foundEl)]);
-  mount(h('div', { class: 'app grid-run' }, head, h('div', { class: 'duel' }, top, h('div', { class: 'row lang-type' }, input), sugEl, verdict, list), footer));
+  mount(h('div', { class: 'app grid-run' }, head, h('div', { class: 'duel' }, top, h('div', { class: 'globewrap' }, svg, zoom), h('div', { class: 'row lang-type' }, input, giveBtn), sugEl, verdict, list), footer));
+  const proj = d3.geoOrthographic().translate([200, 200]).clipAngle(90), gp = d3.geoPath(proj), graticule = d3.geoGraticule10();
+  function render() {
+    proj.scale(190 * scale).rotate(rot);
+    sphere.setAttribute('d', gp({ type: 'Sphere' })); grat.setAttribute('d', gp(graticule));
+    DATA.forEach((c) => paths[c.id].setAttribute('d', gp(globeFeature(c.id)) || ''));
+  }
+  // Turn the globe so a country is in the middle.
+  function turnTo(id) {
+    cancelAnimationFrame(spin);
+    const [lat, lon] = BY_ID[id].ll, from = rot.slice(), to = [-lon, -lat], t0 = performance.now();
+    let dl = to[0] - from[0]; dl = ((dl + 540) % 360) - 180;
+    const step = (now) => { const t = Math.min(1, (now - t0) / 650), e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; rot = [from[0] + dl * e, from[1] + (to[1] - from[1]) * e]; render(); if (t < 1) spin = requestAnimationFrame(step); };
+    spin = requestAnimationFrame(step);
+  }
+  // Drag to spin.
+  let drag = null;
+  svg.addEventListener('pointerdown', (e) => { cancelAnimationFrame(spin); svg.setPointerCapture(e.pointerId); drag = { x: e.clientX, y: e.clientY, rot: rot.slice() }; });
+  svg.addEventListener('pointermove', (e) => { if (!drag) return; if (e.pointerType === 'mouse' && e.buttons === 0) { drag = null; return; } const k = 0.4 / scale; rot = [drag.rot[0] + (e.clientX - drag.x) * k, Math.max(-85, Math.min(85, drag.rot[1] - (e.clientY - drag.y) * k))]; render(); });
+  const stop = () => { drag = null; }; svg.addEventListener('pointerup', stop); svg.addEventListener('pointercancel', stop); svg.addEventListener('lostpointercapture', stop);
+  cleanup.push(() => cancelAnimationFrame(spin));
   const help = spellingHelp(input, sugEl, 'country', () => sec.ids[i], () => guess(), (text) => !!countryFromText(text));
   function count() { foundEl.textContent = res.found.length + ' found · ' + Math.max(0, sec.ids.length - i - (busy ? 1 : 0)) + ' left'; }
-  // Warm colour scale: under 500 km hot, over 6000 km cold.
-  const heat = (d) => d === 0 ? 'hit' : d < 500 ? 'h4' : d < 1500 ? 'h3' : d < 3500 ? 'h2' : d < 6000 ? 'h1' : 'h0';
-  const arrows = ['⬆️', '↗️', '➡️', '↘️', '⬇️', '↙️', '⬅️', '↖️'];
-  function draw() {
+  function paint() {
     const target = sec.ids[i];
-    top.textContent = 'Mystery country ' + (i + 1) + ' · guess ' + Math.min(guesses.length + 1, HOT_TRIES) + ' of ' + HOT_TRIES;
-    list.replaceChildren(...guesses.slice().sort((a, b) => km(a, target) - km(b, target)).map((g) => {
-      const d = g === target ? 0 : km(g, target);
-      return h('li', { class: heat(d) }, flagImg(g), h('span', { class: 'hn' }, BY_ID[g].name), h('b', { class: 'num' }, d ? fmtKm(d) : '✓'), h('span', { class: 'harrow' }, d ? arrows[Math.round(bearing(g, target) / 45) % 8] : '🎯'));
+    DATA.forEach((c) => { const p = paths[c.id]; p.removeAttribute('data-hit'); p.style.fill = ''; });
+    guesses.forEach((g) => { const p = paths[g]; if (g === target) p.setAttribute('data-hit', '1'); else p.style.fill = globeColour(borderKm(g, target)); });
+    top.textContent = 'Mystery country ' + (i + 1) + ' of ' + sec.ids.length + (guesses.length ? ' · ' + guesses.length + (guesses.length === 1 ? ' guess' : ' guesses') : '');
+    list.replaceChildren(...guesses.slice().sort((a, b) => borderKm(a, target) - borderKm(b, target)).map((g) => {
+      const d = borderKm(g, target);
+      return h('li', null, h('span', { class: 'swatch', style: { background: g === target ? 'var(--ok)' : globeColour(d) } }), flagImg(g), h('span', { class: 'hn' }, BY_ID[g].name), h('b', { class: 'num' }, g === target ? '✓' : d === 0 ? 'Bordering' : fmtKm(d)));
     }));
     count();
   }
@@ -2163,29 +2363,27 @@ function hotGame(api) {
     const g = countryFromText(input.value);
     if (!g) { shake(input); return; }
     input.value = ''; help.clear();
-    if (guesses.includes(g)) { toast('Already guessed'); return; }
-    guesses.push(g);
-    const target = sec.ids[i];
-    if (g === target) return end(true);
-    draw();
-    if (guesses.length >= HOT_TRIES) end(false);
+    if (guesses.includes(g)) { toast('Already guessed'); turnTo(g); return; }
+    guesses.push(g); paint(); turnTo(g);
+    if (g === sec.ids[i]) end(true);
   }
   function end(right) {
-    busy = true; api.R.clock.pause(); input.disabled = true;
+    if (busy || revealed) return;
+    busy = true; api.R.clock.pause(); input.disabled = true; help.clear();
     const target = sec.ids[i];
-    if (right) res.found.push(target);
-    verdict.textContent = (right ? '✓ ' + BY_ID[target].name + ' in ' + guesses.length : 'It was ' + BY_ID[target].name);
+    if (right) res.found.push(target); else { guesses.push(target); paint(); turnTo(target); }
+    verdict.textContent = right ? '✓ ' + BY_ID[target].name + ' in ' + guesses.length : 'It was ' + BY_ID[target].name;
     verdict.className = 'lang-verdict center ' + (right ? 'ok' : 'bad');
-    draw();
+    count();
     setTimeout(() => {
       busy = false; api.R.clock.resume(); i++; guesses = [];
       if (i >= sec.ids.length) { api.done(); return; }
-      verdict.textContent = ''; verdict.className = 'lang-verdict center'; input.disabled = false; draw(); window.scrollTo(0, 0); input.focus({ preventScroll: true });
-    }, right ? 1000 : 1900);
+      verdict.textContent = ''; verdict.className = 'lang-verdict center'; input.disabled = false; paint(); window.scrollTo(0, 0); input.focus({ preventScroll: true });
+    }, right ? 1300 : 2200);
   }
   input.addEventListener('input', () => { if (!busy && !revealed) help.update(); });
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (countryFromText(input.value)) guess(); else if (input.value.trim()) help.enter(); } });
-  draw(); input.focus({ preventScroll: true });
+  render(); paint(); input.focus({ preventScroll: true });
   return {
     completed() { head.classList.add('all-done'); },
     reveal(btn) { revealed = true; input.disabled = true; head.classList.add('gave-up'); list.replaceChildren(h('p', { class: 'eyebrow' }, 'The mystery countries'), h('p', { class: 'namelist' }, sec.ids.slice(i).map((id) => BY_ID[id].name).join(' · '))); footer.hidden = false; footer.replaceChildren(btn); },
@@ -2228,9 +2426,9 @@ function closerGame(api) {
   };
 }
 
-/* Letter rush: a letter; name every country (in the run's countries) starting with it, any order. 45 seconds
-   per letter — when time's up the ones you missed show for a moment and the next letter comes. */
-const LETTER_MS = 45000;
+/* Letter rush: a letter; name as many countries (of the run's countries) starting with it as you can in 12 seconds.
+   Right ones fill in; wrong ones just don't count. When time's up the ones you missed show, then the next letter. */
+const LETTER_MS = 12000;
 function letterGame(api) {
   const { sec, res } = api;
   let li = 0, busy = false, revealed = false, endsAt = 0, timer = 0;
@@ -2307,11 +2505,12 @@ function flagpickGame(api) {
   function tap(id) {
     if (revealed) { hint.textContent = BY_ID[id].name; return; }
     const cur = queue[0]; if (!cur) return;
-    if (must) { if (id === must) { tiles[must].classList.remove('must'); tiles[must].classList.add('missed'); tiles[must].querySelector('.lbl').textContent = BY_ID[must].name; must = null; missedN++; queue.shift(); ask(); } return; }
+    if (must) { if (id === must) { tiles[must].classList.remove('must'); tiles[must].classList.add('missed'); tiles[must].querySelector('.lbl').textContent = BY_ID[must].name; grid.appendChild(tiles[must]); must = null; missedN++; queue.shift(); ask(); } return; }
     if (tiles[id].classList.contains('done') || tiles[id].classList.contains('missed')) return;
     if (id === cur) {
       const t = tries[cur] || 0;
       res.found.push(cur); tiles[cur].classList.add('done', 'g' + t); tiles[cur].querySelector('.lbl').textContent = BY_ID[cur].name;
+      grid.appendChild(tiles[cur]); // found flags go to the back, so the ones left are up front (owner)
       queue.shift(); ask(); return;
     }
     tries[cur] = (tries[cur] || 0) + 1;
@@ -2345,7 +2544,8 @@ function chainGame(api) {
   const title = h('div', { class: 'chain-title' }), info = h('p', { class: 'eyebrow center' }), verdict = h('p', { class: 'lang-verdict center' });
   const chips = h('div', { class: 'chain-chips' });
   const paths = {}, dots = h('g', null);
-  const svg = h('svg', { class: 'map chainmap', preserveAspectRatio: 'xMidYMid meet' }, h('rect', { class: 'sea', x: -md.w, y: -md.h, width: md.w * 3, height: md.h * 3 }), h('path', { class: 'land', d: md.land }),
+  // Travle style: only the start, the end and the countries you've named are drawn — nothing else gives it away.
+  const svg = h('svg', { class: 'map chainmap', preserveAspectRatio: 'xMidYMid meet' }, h('rect', { class: 'sea', x: -md.w, y: -md.h, width: md.w * 3, height: md.h * 3 }),
     ...Object.entries(md.c).map(([id, d]) => (paths[id] = h('path', { class: 'cty', d, 'data-id': id }))), dots);
   const footer = h('div', { class: 'reveal-bar', hidden: true });
   const head = boardHead(api, [h('div', { class: 'progress' }, foundEl)]);
@@ -2388,7 +2588,7 @@ function chainGame(api) {
     guesses.forEach((g) => paths[g] && paths[g].setAttribute('data-st', 'c-' + colour(g)));
     if (showRoute) route.slice(1, -1).forEach((g) => { if (!guesses.includes(g) && paths[g]) paths[g].setAttribute('data-st', 'c-route'); });
     chips.replaceChildren(...guesses.map((g) => h('span', { class: 'chip c-' + colour(g) }, BY_ID[g].name)));
-    requestAnimationFrame(() => frame(route.concat(guesses)));
+    requestAnimationFrame(() => frame((showRoute ? route : [a, b]).concat(guesses)));
     count();
   }
   function guess() {
@@ -2754,7 +2954,7 @@ function liveLobby(code) {
     LIVE.room = room;
     const host = room.host === NET.uid();
     what.textContent = cfgLabel(room.cfg);
-    if (usesLangs(room.cfg)) needLangs().catch(() => {}); // fetch the sentences while waiting
+    needAssets(room.cfg).catch(() => {}); // fetch what the games need while waiting
     const ps = Object.entries(room.players || {}).filter(([, p]) => !p.gone);
     list.replaceChildren(...ps.map(([id, p]) => h('li', null, h('span', { class: 'rank' }, id === room.host ? '★' : '•'), h('div', { class: 'q' }, p.name + (id === NET.uid() ? ' (you)' : '')))));
     startBtn.hidden = !host; wait.hidden = host;
@@ -2780,7 +2980,7 @@ async function liveStartRound(next) {
 // Everyone: the countdown runs to the shared start time, then the same run starts on every phone.
 function liveBegin(room) {
   LIVE.startedRound = room.round;
-  if (usesLangs(room.cfg) && !langsReady()) { needLangs().then(() => liveBegin2(room), () => toast('Couldn\'t load the languages')); return; }
+  if (!assetsReady(room.cfg)) { needAssets(room.cfg).then(() => liveBegin2(room), () => toast('Couldn\'t load the game')); return; }
   liveBegin2(room);
 }
 function liveBegin2(room) {
@@ -2892,7 +3092,7 @@ function liveCfg(cfg, st) {
 function liveNextRound() {
   NET.update('rooms/' + LIVE.code, { picking: true }).catch(() => {});
   if (LIVE.room && LIVE.room.cfg) {
-    const c = LIVE.room.cfg; Object.assign(S.setup, { kind: 'board', games: c.games.slice(), help: !!c.help, hard: !!c.hard, langType: !!c.langType, strict: !!c.strict, allMap: !!c.allMap, peek: !c.noPeek });
+    const c = LIVE.room.cfg; Object.assign(S.setup, { kind: 'board', games: c.games.slice(), help: !!c.help, hard: !!c.hard, langType: !!c.langType, strict: !!c.strict, allMap: !!c.allMap, peek: !c.noPeek, counts: Object.assign({}, c.counts || {}) });
     if (c.regions) Object.assign(S.setup, { multi: true, regions: c.regions.slice() });
     else Object.assign(S.setup, { multi: false, region: c.limit ? 'mixed' : c.region }, c.limit ? { mixN: c.limit } : {});
   }
