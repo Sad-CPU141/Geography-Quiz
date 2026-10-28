@@ -1,7 +1,7 @@
-/* Geography Speedrun 3a09d12966 — built from src/js/ by build.js. Edit src/, not this file. */
+/* Geography Speedrun a23ceb9871 — built from src/js/ by build.js. Edit src/, not this file. */
 (function () {
 'use strict';
-const APP_VERSION = "3a09d12966";
+const APP_VERSION = "a23ceb9871";
 /* ---- core: data, answer matching, runs, challenge codes (no DOM; tested by tests/run.js) ---- */
 const DATA = window.GS_DATA.countries;
 const BY_ID = Object.fromEntries(DATA.map((c) => [c.id, c]));
