@@ -29,6 +29,18 @@ const NAME = {
   zho: 'Chinese (Mandarin)', msa: 'Malay', grn: 'Guaraní', ber: 'Tamazight', sot: 'Sesotho', tsn: 'Setswana', nso: 'Sepedi',
   ell: 'Greek', nob: 'Norwegian', toi: 'Tonga (Zambia)', gsw: 'Swiss German', mri: 'Māori', zdj: 'Comorian', fil: 'Filipino', kon: 'Kikongo',
 };
+// Other names people type for a language (Typed mode). The data's own name is added too when it differs.
+const ALT = {
+  fas: ['Farsi'], prs: ['Afghan Persian', 'Persian'], zho: ['Mandarin', 'Chinese'], fil: ['Tagalog'], mya: ['Myanmar'], div: ['Maldivian', 'Divehi'],
+  khm: ['Cambodian'], swa: ['Kiswahili'], sot: ['Sotho', 'Southern Sotho'], tsn: ['Tswana'], nso: ['Northern Sotho', 'Pedi'], nya: ['Nyanja', 'Chewa'],
+  run: ['Rundi'], kon: ['Kongo'], ber: ['Berber', 'Amazigh'], hat: ['Haitian', 'Creole', 'Kreyol'], ell: ['Modern Greek'], nob: ['Bokmal', 'Norwegian Bokmal'],
+  ckb: ['Kurdish', 'Sorani', 'Central Kurdish'], toi: ['Tonga', 'Chitonga'], ton: ['Tonga'], mri: ['Maori'], grn: ['Guarani'], ssw: ['Swazi', 'siSwati'],
+  nbl: ['Ndebele', 'Southern Ndebele'], ltz: ['Luxembourgish', 'Letzeburgesch'], gle: ['Irish Gaelic', 'Gaelic'], msa: ['Malaysian', 'Bahasa Malaysia'],
+  ind: ['Bahasa Indonesia', 'Bahasa'], kir: ['Kirghiz'], tgk: ['Tajiki'], pus: ['Pushto'], amh: ['Amharic'], tir: ['Tigrinya'], dzo: ['Bhutanese'],
+  lao: ['Laotian'], sin: ['Sinhalese'], tpi: ['Pidgin'], bis: ['Bichelamar'], smo: ['Samoan'], fij: ['Fijian'], mah: ['Marshallese'], crs: ['Seselwa', 'Creole'],
+  zdj: ['Shikomori', 'Comoran'], cnr: ['Montenegrin'], gsw: ['Swiss German', 'Schweizerdeutsch'], roh: ['Romansh', 'Romansch'], lat: ['Latin'], hye: ['Armenian'],
+  kat: ['Georgian'], mlt: ['Maltese'], uzb: ['Uzbek'], aze: ['Azeri'], que: ['Quechua'], aym: ['Aymara'], lin: ['Lingala'], sag: ['Sango'], lua: ['Luba-Kasai', 'Tshiluba'],
+};
 const SKIP = new Set(['nno', 'bar']); // Nynorsk would duplicate Norwegian; Austro-Bavarian isn't a standard written language
 const stageOf = Object.fromEntries(udhr.map((d) => [d.code, d.stage]));
 const dirOf = Object.fromEntries(udhr.map((d) => [d.code, d.direction]));
@@ -78,7 +90,8 @@ for (const [k, v] of Object.entries(langs)) {
   // Two more short sentences (Articles 3–6), used when a region has only a few languages.
   const more = [3, 4, 5, 6].map((n) => article(code, n)).filter((t) => t && t.length <= 170 && !t.endsWith('…')).slice(0, 2);
   if (!text) { missing.push(k + ' (no article 1)'); continue; }
-  out.push({ k, name: NAME[k] || v.name, dir: dirOf[code] === 'rtl' ? 'rtl' : 'ltr', script: scriptOf(text), text, more, countries: v.countries.sort() });
+  const alt = [...new Set([...(ALT[k] || []), v.name])].filter((a) => a !== (NAME[k] || v.name));
+  out.push({ k, name: NAME[k] || v.name, alt, dir: dirOf[code] === 'rtl' ? 'rtl' : 'ltr', script: scriptOf(text), text, more, countries: v.countries.sort() });
 }
 out.sort((a, b) => a.name.localeCompare(b.name));
 // Languages so close in writing that they'd be unfair as wrong options for each other.

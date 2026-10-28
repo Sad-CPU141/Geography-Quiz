@@ -123,6 +123,7 @@ function onlineHub(prefill) {
       h('div', { class: 'row' },
         h('button', { class: 'btn ghost small', onclick: () => scanQR((code) => { room.value = code; liveJoin(code); }) }, '📷 Scan QR'),
         h('button', { class: 'btn primary small', onclick: () => liveJoin(room.value) }, 'Join'))),
+    (() => { const c = h2hCard(); return c ? h('div', { class: 'card' }, c) : null; })(),
     h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Challenge code'),
       chal = h('input', { class: 'input code', style: { fontSize: '24px' }, placeholder: 'ABCD-1234', maxlength: 20, autocapitalize: 'characters', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Challenge code', oninput: () => checkChal(), onkeydown: (e) => { if (e.key === 'Enter') playChallenge(); } }),
       chalInfo = h('p', { class: 'small muted' }),
@@ -288,6 +289,32 @@ function liveBar() {
   if (prev) prev();
   LIVE.unwatch = NET.watch(LIVE.code, (room) => { LIVE.room = room; draw(room); if (room && room.state === 'play' && room.round > LIVE.startedRound) liveBegin(room); });
 }
+/* Head-to-head: once everyone in a round has finished, each rival you raced counts a win, loss or tie for you
+   (on this device, by their player id, so a new name keeps the record). gs_h2h_v1 = { uid: { name, w, l, t } }. */
+function h2hRecord(room) {
+  const me = room.players && room.players[NET.uid()];
+  if (!me || !me.done || !room.round) return;
+  const st = liveStandings(room);
+  if (st.some((p) => !p.done)) return;
+  const seen = store.get('gs_h2h_seen_v1', []), key = LIVE.code + ':' + room.round + ':' + room.createdAt;
+  if (seen.includes(key)) return;
+  const book = store.get('gs_h2h_v1', {}), mine = { correct: me.correct, time: me.time };
+  st.forEach((p) => {
+    if (p.id === NET.uid()) return;
+    const r = book[p.id] = book[p.id] || { name: p.name, w: 0, l: 0, t: 0 };
+    r.name = p.name; r.at = Date.now();
+    if (better(mine, p, 'board')) r.w++; else if (better(p, mine, 'board')) r.l++; else r.t++;
+  });
+  store.set('gs_h2h_v1', book);
+  store.set('gs_h2h_seen_v1', seen.concat([key]).slice(-200));
+}
+function h2hCard(ids) {
+  const book = store.get('gs_h2h_v1', {});
+  const rows = Object.entries(book).filter(([id]) => !ids || ids.includes(id)).sort((a, b) => (b[1].at || 0) - (a[1].at || 0)).slice(0, ids ? 8 : 6);
+  if (!rows.length) return null;
+  return h('div', { class: 'h2h' }, h('p', { class: 'eyebrow' }, '⚔️ Head to head'),
+    h('ul', { class: 'pairs' }, rows.map(([, r]) => h('li', null, h('span', null, 'You vs ' + r.name), h('b', { class: 'num ' + (r.w > r.l ? 'up' : r.w < r.l ? 'down' : '') }, r.w + ' – ' + r.l + (r.t ? ' · ' + r.t + 'T' : ''))))));
+}
 // On the results screen: everyone's results, updating as they finish.
 function liveResults() {
   const box = h('div', { class: 'card sky' });
@@ -298,6 +325,7 @@ function liveResults() {
       h('ul', { class: 'list board' }, st.map((p, i) => h('li', { class: i === 0 && p.done ? 'first' : null }, h('span', { class: 'rank' }, String(i + 1)),
         h('div', { class: 'q' }, p.name + (p.id === NET.uid() ? ' (you)' : ''), h('small', null, p.done ? p.correct + '/' + p.total + ' found' : 'playing · ' + p.found + '/' + p.total)),
         h('div', { class: 't' }, p.done ? fmtTime(p.time) : '…')))),
+      (h2hRecord(room), h2hCard(st.map((p) => p.id))),
       host ? h('button', { class: 'btn primary small', onclick: () => liveStartRound() }, '🔁 Another round') : h('p', { class: 'small muted center' }, 'The host can start another round'));
   };
   if (LIVE.room) draw(LIVE.room);

@@ -352,6 +352,9 @@ body.fullscreen{overflow:hidden}
 .lang-text{margin:0;padding:18px 20px;border-radius:18px;background:var(--panel2);border:2px solid var(--line);font-family:'Barlow','GS Scripts',system-ui,sans-serif;font-weight:600;font-size:clamp(20px,2.6vw,30px);line-height:1.45;text-align:center;overflow-wrap:anywhere}
 .lang-where{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px;min-height:24px}
 .lang-where img{height:22px;width:auto;border-radius:2px;box-shadow:0 0 0 1px rgba(255,255,255,.15)}
+.lang-type .input{flex:1;min-width:0;min-height:52px;font-size:20px}
+.lang-verdict{margin:0;min-height:1.4em;font-family:var(--cond);font-weight:800;font-size:22px}
+.lang-verdict.ok{color:var(--ok)}.lang-verdict.bad{color:var(--danger)}
 .lang-opts{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .lang-pick{min-height:76px;padding:12px 10px}
 .langlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
@@ -369,6 +372,9 @@ body.fullscreen{overflow:hidden}
 .bhead .timer{flex:1 0 auto}
 /* Map: name it — make the gold country unmissable */
 .map .cty[data-st="focus"]{stroke:#fff;stroke-width:2.2}
+/* Map: no borders — countries blend into one landmass (stroke = land colour hides the seams); no hover hint. */
+.map.noborders .cty:not(.off):not([data-st]){stroke:var(--land);stroke-width:.9}
+.map.noborders .cty:not(.off):not([data-st]):hover{fill:var(--land)}
 @keyframes focuspulse{0%,100%{fill:var(--gold)}50%{fill:#ff8a3d}}
 /* options: one-line switches */
 .optrow{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;font-weight:700}
@@ -400,3 +406,7 @@ body:has(.livebar) .app{padding-bottom:calc(60px + env(safe-area-inset-bottom,0p
 .reveal-bar .btn{min-height:58px;font-size:20px}
 body:has(.livebar) .reveal-bar{bottom:calc(64px + env(safe-area-inset-bottom,0px))}
 body:has(.livebar) .reveal-bar.floating{bottom:calc(74px + env(safe-area-inset-bottom,0px))}
+
+/* Head to head records (online) */
+.h2h{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.h2h .num.up{color:var(--ok)}.h2h .num.down{color:var(--danger)}

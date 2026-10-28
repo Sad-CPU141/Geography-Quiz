@@ -305,6 +305,48 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
   }
   if (only === 'fly') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }
 
+  // Options: Map with no borders, and typed languages — switches appear only with those games, go into the
+  // code (+N / +T) and change how the games play.
+  if (!only || only === 'opts') {
+    const ctx = await b.newContext({ viewport: { width: 1366, height: 768 } });
+    const page = await ctx.newPage();
+    const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(BASE);
+    await setupBoard(page, ['Flags'], 'Europe');
+    ok(!(await page.$('text=Map: no borders')), 'opts: no borders switch hidden without a map game');
+    await page.goto(BASE);
+    await setupBoard(page, ['Map', 'Guess the language'], 'Europe');
+    await page.click('.optrow:has-text("no borders") .switch'); await page.click('.optrow:has-text("type it") .switch');
+    await page.click('button:has-text("Start")');
+    ok(/No borders/.test(await page.textContent('.topbar')) && /Typed/.test(await page.textContent('.topbar')), 'opts: shown in the run name');
+    await page.click('button:has-text("Go")');
+    await page.waitForSelector('svg.map.noborders');
+    const stroke = await page.evaluate(() => { const p = document.querySelector('svg.map .cty:not(.off)'); const c = getComputedStyle(p); return [c.stroke, getComputedStyle(document.documentElement).getPropertyValue('--land').trim()]; });
+    ok(/243, 231, 195/.test(stroke[0]), 'opts: borders drawn in the land colour (invisible): ' + stroke.join(' '));
+    await page.screenshot({ path: path.join(outDir, 'opts-noborders.png') });
+    await page.click('button:has-text("Give up")'); await page.click('button:has-text("Give up on")');
+    await page.click('.reveal-bar button');
+    await page.waitForSelector('.lang-type input');
+    // Typed: the right name is taken the moment it's typed; Enter on a wrong one shakes; Pass shows the answer.
+    const ans = await page.evaluate(() => { const q = document.querySelector('.lang-text').textContent; const l = window.GS.LANGS.find((x) => [x.text, ...x.more].includes(q)); return l.name.replace(/\s*\(.*\)/, ''); });
+    await page.keyboard.type('Klingon'); await page.keyboard.press('Enter');
+    ok(await page.$('.lang-type input.shake') !== null, 'typed: Enter on a wrong name shakes');
+    await page.fill('.lang-type input', '');
+    await page.keyboard.type(ans);
+    await page.waitForSelector('.lang-verdict.ok');
+    ok(/✓/.test(await page.textContent('.lang-verdict')), 'typed: right name accepted (' + ans + ')');
+    await page.waitForTimeout(800);
+    await page.click('.lang-type button:has-text("Pass")');
+    await page.waitForSelector('.lang-verdict.bad');
+    ok(/It was /.test(await page.textContent('.lang-verdict')), 'typed: Pass shows the answer');
+    await page.screenshot({ path: path.join(outDir, 'opts-typed.png') });
+    await page.waitForTimeout(1700);
+    ok(/1 \/ \d+ right/.test(await page.textContent('.found')), 'typed: score 1 after a right one and a pass');
+    ok(errors.length === 0, 'opts: no page errors ' + JSON.stringify(errors));
+    await ctx.close();
+  }
+  if (only === 'opts') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }
+
   // Guess the language (phone + TV): first round picked wrong (shows the right one), the rest right; results list
   // the miss with its sentence; the rare-script font is there; then North America gets 10 rounds.
   for (const [W, H] of only && only !== 'lang' ? [] : [[360, 780], [1920, 1080]]) {
@@ -568,6 +610,11 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await B.waitForFunction(() => document.querySelectorAll('.card.sky .list li').length === 2 && !/still playing/.test(document.querySelector('.card.sky').textContent), null, { timeout: 4000 });
     const order = await B.$$eval('.card.sky .list li .q', (els) => els.map((e) => e.firstChild.textContent));
     ok(order[0].startsWith('Xrazt') && order[1].startsWith('Sam'), 'final standings: ' + order.join(', '));
+    // Head to head: the finished round counts once (both test tabs share one device's storage).
+    await B.waitForSelector('.card.sky .h2h', { timeout: 4000 }).catch(() => {});
+    const h2h = await B.evaluate(() => JSON.parse(localStorage.getItem('gs_h2h_v1') || '{}'));
+    const recs = Object.values(h2h);
+    ok(recs.length === 1 && recs[0].w + recs[0].l + recs[0].t === 1 && await B.$('.card.sky .h2h') !== null, 'head to head: one result recorded and shown ' + JSON.stringify(recs));
     await B.screenshot({ path: path.join(outDir, 'live-results.png'), fullPage: true });
     // Another round: the host restarts, both start again with a new order.
     await A.bringToFront();

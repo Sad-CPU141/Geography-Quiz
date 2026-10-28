@@ -151,9 +151,24 @@ function langGame(api) {
   const footer = h('div', { class: 'reveal-bar', hidden: true });
   const head = boardHead(api, h('div', { class: 'progress' }, foundEl));
   mount(h('div', { class: 'app grid-run' }, head, arena, footer));
+  // Typed mode (setup switch): type the language's name instead of picking it; Pass if you don't know.
+  const typed = !!S.session.cfg.langType;
+  const input = typed ? h('input', { class: 'input', type: 'text', autocomplete: 'off', autocorrect: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'go', placeholder: 'Type the language…', 'aria-label': 'The language' }) : null;
+  const verdict = h('p', { class: 'lang-verdict center' });
+  if (typed) {
+    input.addEventListener('input', () => { if (!busy && i < sec.ids.length && langAnswer(langOf(sec.ids[i]).k, input.value)) pick(langOf(sec.ids[i]).k); });
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (!busy && input.value.trim()) shake(input); } });
+  }
   function count() { foundEl.textContent = res.found.length + ' / ' + sec.ids.length + ' right · round ' + Math.min(i + 1, sec.ids.length); }
   function draw() {
     const k = sec.ids[i];
+    if (typed) {
+      verdict.textContent = ''; verdict.className = 'lang-verdict center'; input.value = ''; input.disabled = false;
+      arena.replaceChildren(h('p', { class: 'eyebrow center' }, 'Which language?'), langQuote(k), h('div', { class: 'lang-where' }),
+        h('div', { class: 'row lang-type' }, input, h('button', { class: 'btn ghost small', style: { width: 'auto', flex: '0 0 auto' }, onmousedown: (e) => e.preventDefault(), onclick: () => pick(null) }, 'Pass')), verdict);
+      input.focus({ preventScroll: true });
+      return;
+    }
     arena.replaceChildren(h('p', { class: 'eyebrow center' }, 'Which language?'), langQuote(k), h('div', { class: 'lang-where' }),
       h('div', { class: 'lang-opts' }, sec.opts[k].map((o, n) => h('button', { class: 'duel-pick lang-pick', 'data-id': o, onclick: () => pick(o) },
         h('b', null, LANG_BY[o].name), h('span', { class: 'key' }, String(n + 1))))));
@@ -163,6 +178,11 @@ function langGame(api) {
     busy = true; api.R.clock.pause();
     const id = sec.ids[i], k = langOf(id).k;
     if (o === k) res.found.push(id); else try { navigator.vibrate && navigator.vibrate(40); } catch (e) { /* no vibration */ }
+    if (typed) {
+      input.disabled = true;
+      verdict.textContent = o === k ? '✓ ' + LANG_BY[k].name : (o === null ? '' : '✗ ') + 'It was ' + LANG_BY[k].name;
+      verdict.className = 'lang-verdict center ' + (o === k ? 'ok' : 'bad');
+    }
     arena.querySelectorAll('.lang-pick').forEach((btn) => {
       const b = btn.getAttribute('data-id');
       btn.classList.add(b === k ? 'right' : b === o ? 'wrong' : 'other');
@@ -173,10 +193,10 @@ function langGame(api) {
       busy = false; api.R.clock.resume(); i++;
       if (i >= sec.ids.length) { api.done(); return; }
       count(); draw();
-    }, o === k ? 700 : 1400);
+    }, o === k ? 700 : 1600);
   }
   const onKey = (e) => {
-    if (busy || revealed || i >= sec.ids.length || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (typed || busy || revealed || i >= sec.ids.length || e.ctrlKey || e.metaKey || e.altKey) return;
     const n = '1234'.indexOf(e.key);
     if (n >= 0 && sec.opts[sec.ids[i]][n]) pick(sec.opts[sec.ids[i]][n]);
   };

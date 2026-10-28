@@ -126,6 +126,20 @@ ok(lw.ids.filter((k) => LB[k].script !== 'Latin').every((k) => lw.opts[k].every(
 ok(JSON.stringify(GS.makeBoard({ kind: 'board', games: ['lang'], region: 'Asia', seed: 9 })) === JSON.stringify(GS.makeBoard({ kind: 'board', games: ['lang'], region: 'Asia', seed: 9 })), 'lang: same seed, same run');
 const lc = { kind: 'board', games: ['lang', 'flags'], region: 'Africa', seed: 4242 };
 ok(JSON.stringify(GS.decodeCode(GS.encodeCode(lc))) === JSON.stringify(lc), 'lang: challenge code round trip');
+// Run options: no borders (+N) and typed languages (+T) ride along in the code; dropped when they don't apply.
+const oc1 = GS.withOpts({ kind: 'board', games: ['map', 'lang'], region: 'Asia', seed: 777 }, { hard: true, langType: true });
+const code1 = GS.encodeCode(oc1);
+ok(/\+NT$/.test(code1) && JSON.stringify(GS.decodeCode(code1)) === JSON.stringify(oc1), 'options in the code: ' + code1);
+ok(!GS.withOpts({ kind: 'board', games: ['flags'], region: 'Asia', seed: 1 }, { hard: true, langType: true }).hard, 'no borders only with a map game');
+ok(!('hard' in GS.decodeCode(GS.encodeCode({ kind: 'board', games: ['flags'], region: 'Asia', seed: 1 }))), 'plain codes have no options');
+ok(GS.decodeCode(code1.replace('+NT', '')).hard === undefined, 'code without +N plays with borders');
+// Typed language answers.
+ok(GS.langAnswer('fas', 'Farsi') && GS.langAnswer('fas', 'persian') && GS.langAnswer('zho', 'Mandarin') && GS.langAnswer('zho', 'chinese') && GS.langAnswer('mri', 'Maori') && !GS.langAnswer('fas', 'Arabic') && !GS.langAnswer('eng', ''), 'typed language names and other names');
+ok(GS.LANGS.every((l) => GS.langAnswer(l.k, l.name)), 'every language accepts its own name');
+// Daily: Guess the language joins from 29 Oct 2026; earlier days are unchanged.
+const from = Date.UTC(2026, 9, 29) / 86400000;
+ok([...Array(60)].some((_, i) => GS.dailyCfg(from + i).games.includes('lang')), 'daily: Guess the language comes up from 29 Oct');
+ok([...Array(300)].every((_, i) => !GS.dailyCfg(from - 1 - i).games.includes('lang')), 'daily: earlier days never had it');
 // Daily run: same all day, different tomorrow, always two games and a continent.
 const d1 = GS.dailyCfg(20388), d2 = GS.dailyCfg(20388), d3 = GS.dailyCfg(20389);
 ok(JSON.stringify(d1) === JSON.stringify(d2) && JSON.stringify(d1) !== JSON.stringify(d3), 'daily: same day same run, next day different');

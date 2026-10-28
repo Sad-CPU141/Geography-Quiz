@@ -222,7 +222,7 @@ function setup() {
     ];
   }
   const cfgNow = () => st.kind === 'board'
-    ? { kind: 'board', games: st.games.slice(), region: st.region, seed: newSeed() }
+    ? withOpts({ kind: 'board', games: st.games.slice(), region: st.region, seed: newSeed() }, st)
     : { kind: 'quick', mode: st.mode, region: st.region, count: st.count, style: st.style, seed: newSeed() };
   mount(h('div', { class: 'app', 'data-screen': 'setup' },
     topbar('New run', home),
@@ -233,7 +233,9 @@ function setup() {
     st.kind === 'quick' ? quickCards() : null,
     h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Options'),
       st.kind === 'board' || st.style === 'type' ? optRow('💡 Spelling help', !!st.help, set('help')) : null,
-      st.kind === 'board' ? optRow('🧘 Practice (no clock)', !!st.practice, set('practice')) : null),
+      st.kind === 'board' ? optRow('🧘 Practice (no clock)', !!st.practice, set('practice')) : null,
+      st.kind === 'board' && st.games.some((g) => MAP_GAMES.has(g)) ? optRow('🧱 Map: no borders', !!st.hard, set('hard')) : null,
+      st.kind === 'board' && st.games.includes('lang') ? optRow('⌨️ Languages: type it', !!st.langType, set('langType')) : null),
     h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Who is playing'),
       seg([{ id: false, label: 'Just me', em: '🙋' }, { id: true, label: 'Pass the phone', em: '👥' }].concat(st.kind === 'board' ? [{ id: 'live', label: 'Online', em: '🌐' }] : []), st.kind === 'quick' && st.group === 'live' ? false : st.group, set('group'), st.kind === 'board' ? 3 : 2),
       st.group === true ? [

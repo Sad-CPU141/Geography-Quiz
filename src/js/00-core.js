@@ -6,6 +6,13 @@ const LANGS = window.GS_LANGS || [];
 const LANG_BY = Object.fromEntries(LANGS.map((l) => [l.k, l]));
 // A round is a language key ("ara") or, for its extra sentences, "ara~1" / "ara~2".
 const langOf = (id) => LANG_BY[id.split('~')[0]];
+// Typed answers for a language: its name, the parts of "Chinese (Mandarin)", and other names people use.
+function langAnswer(k, typed) {
+  const l = LANG_BY[k], t = norm(typed);
+  if (!t) return false;
+  const names = [l.name, l.name.replace(/\s*\(.*\)/, ''), ...((/\((.*)\)/.exec(l.name) || [])[1] ? [/\((.*)\)/.exec(l.name)[1]] : []), ...(l.alt || [])];
+  return names.some((n) => norm(n) === t);
+}
 const langText = (id) => { const [k, n] = id.split('~'); return n ? LANG_BY[k].more[n - 1] : LANG_BY[k].text; };
 
 /* Two kinds of run:
@@ -213,7 +220,20 @@ function decodeLong(t) {
   }
   return null;
 }
+// Run options that change how a game plays (part of the code, after a "+": N = map with no borders,
+// T = type the language instead of picking it). Only kept when the run has a game they apply to.
+const hasMapGame = (cfg) => cfg.kind === 'board' && cfg.games.some((g) => MAP_GAMES.has(g));
+function withOpts(cfg, o) {
+  if (o && o.hard && hasMapGame(cfg)) cfg.hard = true; else delete cfg.hard;
+  if (o && o.langType && cfg.kind === 'board' && cfg.games.includes('lang')) cfg.langType = true; else delete cfg.langType;
+  return cfg;
+}
+const optLetters = (cfg) => (cfg.hard ? 'N' : '') + (cfg.langType ? 'T' : '');
 function encodeCode(cfg) {
+  const f = optLetters(cfg);
+  return encodeBase(cfg) + (f ? '+' + f : '');
+}
+function encodeBase(cfg) {
   if (cfg.kind === 'board' && cfg.games.some((g) => GAMES.findIndex((x) => x.id === g) >= 4)) return encodeLong(cfg);
   const seed = cfg.seed % SEED_MAX, k = cfgBits(cfg);
   let v = ((k ^ scramble(seed)) * SEED_MAX + seed) * 16 + checkOf(k, seed);
@@ -222,6 +242,11 @@ function encodeCode(cfg) {
   return out.slice(0, 4) + '-' + out.slice(4);
 }
 function decodeCode(text) {
+  const [main, flags] = String(text || '').split('+');
+  const cfg = decodeBase(main);
+  return cfg && withOpts(cfg, { hard: /N/i.test(flags || ''), langType: /T/i.test(flags || '') });
+}
+function decodeBase(text) {
   const t = String(text || '').toUpperCase().replace(/[IL]/g, '1').replace(/O/g, '0').replace(/[^0-9A-Z]/g, '');
   if (t.length >= 10 && t.length <= 16) return decodeLong(t);
   if (t.length !== 8) return null;
@@ -267,10 +292,10 @@ const styleOf = (id) => STYLES.find((x) => x.id === id);
 const regionLabel = (id) => regionOf(id).short || regionOf(id).label;
 function cfgTotal(cfg) { return cfg.kind === 'board' ? makeBoard(cfg).reduce((n, sec) => n + sec.ids.length, 0) : cfg.count; }
 function cfgLabel(cfg) {
-  if (cfg.kind === 'board') return cfg.games.map((g) => gameOf(g).label).join(' + ') + ' · ' + (cfg.custom ? 'My misses' : regionLabel(cfg.region));
+  if (cfg.kind === 'board') return cfg.games.map((g) => gameOf(g).label).join(' + ') + ' · ' + (cfg.custom ? 'My misses' : regionLabel(cfg.region)) + (cfg.hard ? ' · No borders' : '') + (cfg.langType ? ' · Typed' : '');
   return [modeOf(cfg.mode).label, regionLabel(cfg.region), cfg.count === pool(cfg.region).length ? 'All ' + cfg.count : String(cfg.count), styleOf(cfg.style).label].join(' · ') + ' · Quick';
 }
-const bestKey = (cfg) => cfg.kind === 'board' ? ['b', cfg.games.join('+'), cfg.region].join('|') : [cfg.mode, cfg.region, cfg.count, cfg.style].join('|');
+const bestKey = (cfg) => cfg.kind === 'board' ? ['b', cfg.games.join('+'), cfg.region].join('|') + (optLetters(cfg) ? '|' + optLetters(cfg) : '') : [cfg.mode, cfg.region, cfg.count, cfg.style].join('|');
 const newSeed = () => Math.floor(Math.random() * SEED_MAX);
 
 const store = {
@@ -349,11 +374,13 @@ function todayNum(now) {
   const v = (t) => +p.find((x) => x.type === t).value;
   return Math.floor(Date.UTC(v('year'), v('month') - 1, v('day')) / 86400000);
 }
+// Guess the language joins the daily games from 29 Oct 2026 (so days already played keep their run).
+const LANG_DAILY_FROM = Date.UTC(2026, 9, 29) / 86400000;
 function dailyCfg(day) {
   const r = rng((day * 2654435761) >>> 0);
-  return { kind: 'board', games: shuffle(DAILY_GAMES, r).slice(0, 2), region: DAILY_REGIONS[day % DAILY_REGIONS.length], seed: Math.floor(r() * SEED_MAX) };
+  return { kind: 'board', games: shuffle(day >= LANG_DAILY_FROM ? DAILY_GAMES.concat(['lang']) : DAILY_GAMES, r).slice(0, 2), region: DAILY_REGIONS[day % DAILY_REGIONS.length], seed: Math.floor(r() * SEED_MAX) };
 }
 const dayLabel = (day) => new Date(day * 86400000).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
 
-window.GS = { LANGS, LANG_BY, langOf, langText, recordMisses, topMisses, todayNum, dailyCfg, duelWinner, GAMES, suggest, editDistance, norm, isRight, answersFor, makeRun, makeBoard, encodeCode, decodeCode, fmtTime, pool, rng, better, compare, GAME_ORDERS, cfgLabel, DATA };
+window.GS = { withOpts, langAnswer, LANGS, LANG_BY, langOf, langText, recordMisses, topMisses, todayNum, dailyCfg, duelWinner, GAMES, suggest, editDistance, norm, isRight, answersFor, makeRun, makeBoard, encodeCode, decodeCode, fmtTime, pool, rng, better, compare, GAME_ORDERS, cfgLabel, DATA };
 if (window.GS_NO_UI) return;

@@ -37,12 +37,13 @@ function mapGame(api) {
     return { nodes: [zones, g, dots], markers };
   }
   const main = layer(m, 'main');
-  const svg = h('svg', { class: 'map', role: 'img', 'aria-label': 'World map', preserveAspectRatio: 'xMidYMid meet' },
+  const hard = !!S.session.cfg.hard; // no borders: only coasts, until a country is answered
+  const svg = h('svg', { class: 'map' + (hard ? ' noborders' : ''), role: 'img', 'aria-label': 'World map', preserveAspectRatio: 'xMidYMid meet' },
     h('rect', { class: 'sea', x: -m.w, y: -m.h, width: m.w * 3, height: m.h * 3 }), ...main.nodes);
   // Magnified boxes (world map only).
   const insets = (view.insets || []).map((ins) => {
     const md = M[ins.map], L = layer(md, ins.name);
-    const isvg = h('svg', { class: 'map', viewBox: ins.box.join(' '), preserveAspectRatio: 'xMidYMid slice' },
+    const isvg = h('svg', { class: 'map' + (hard ? ' noborders' : ''), viewBox: ins.box.join(' '), preserveAspectRatio: 'xMidYMid slice' },
       h('rect', { class: 'sea', x: ins.box[0] - 50, y: ins.box[1] - 50, width: ins.box[2] + 100, height: ins.box[3] + 100 }), ...L.nodes);
     const box = h('div', { class: 'inset inset-' + ins.where, style: { aspectRatio: ins.box[2] + ' / ' + ins.box[3] } }, isvg, h('span', { class: 'inset-name' }, ins.name));
     isvg.addEventListener('click', (e) => tap(e.clientX, e.clientY));

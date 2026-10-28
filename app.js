@@ -1,7 +1,7 @@
-/* Geography Speedrun 865eff0da3 — built from src/js/ by build.js. Edit src/, not this file. */
+/* Geography Speedrun e04128cde7 — built from src/js/ by build.js. Edit src/, not this file. */
 (function () {
 'use strict';
-const APP_VERSION = "865eff0da3";
+const APP_VERSION = "e04128cde7";
 /* ---- core: data, answer matching, runs, challenge codes (no DOM; tested by tests/run.js) ---- */
 const DATA = window.GS_DATA.countries;
 const BY_ID = Object.fromEntries(DATA.map((c) => [c.id, c]));
@@ -10,6 +10,13 @@ const LANGS = window.GS_LANGS || [];
 const LANG_BY = Object.fromEntries(LANGS.map((l) => [l.k, l]));
 // A round is a language key ("ara") or, for its extra sentences, "ara~1" / "ara~2".
 const langOf = (id) => LANG_BY[id.split('~')[0]];
+// Typed answers for a language: its name, the parts of "Chinese (Mandarin)", and other names people use.
+function langAnswer(k, typed) {
+  const l = LANG_BY[k], t = norm(typed);
+  if (!t) return false;
+  const names = [l.name, l.name.replace(/\s*\(.*\)/, ''), ...((/\((.*)\)/.exec(l.name) || [])[1] ? [/\((.*)\)/.exec(l.name)[1]] : []), ...(l.alt || [])];
+  return names.some((n) => norm(n) === t);
+}
 const langText = (id) => { const [k, n] = id.split('~'); return n ? LANG_BY[k].more[n - 1] : LANG_BY[k].text; };
 
 /* Two kinds of run:
@@ -217,7 +224,20 @@ function decodeLong(t) {
   }
   return null;
 }
+// Run options that change how a game plays (part of the code, after a "+": N = map with no borders,
+// T = type the language instead of picking it). Only kept when the run has a game they apply to.
+const hasMapGame = (cfg) => cfg.kind === 'board' && cfg.games.some((g) => MAP_GAMES.has(g));
+function withOpts(cfg, o) {
+  if (o && o.hard && hasMapGame(cfg)) cfg.hard = true; else delete cfg.hard;
+  if (o && o.langType && cfg.kind === 'board' && cfg.games.includes('lang')) cfg.langType = true; else delete cfg.langType;
+  return cfg;
+}
+const optLetters = (cfg) => (cfg.hard ? 'N' : '') + (cfg.langType ? 'T' : '');
 function encodeCode(cfg) {
+  const f = optLetters(cfg);
+  return encodeBase(cfg) + (f ? '+' + f : '');
+}
+function encodeBase(cfg) {
   if (cfg.kind === 'board' && cfg.games.some((g) => GAMES.findIndex((x) => x.id === g) >= 4)) return encodeLong(cfg);
   const seed = cfg.seed % SEED_MAX, k = cfgBits(cfg);
   let v = ((k ^ scramble(seed)) * SEED_MAX + seed) * 16 + checkOf(k, seed);
@@ -226,6 +246,11 @@ function encodeCode(cfg) {
   return out.slice(0, 4) + '-' + out.slice(4);
 }
 function decodeCode(text) {
+  const [main, flags] = String(text || '').split('+');
+  const cfg = decodeBase(main);
+  return cfg && withOpts(cfg, { hard: /N/i.test(flags || ''), langType: /T/i.test(flags || '') });
+}
+function decodeBase(text) {
   const t = String(text || '').toUpperCase().replace(/[IL]/g, '1').replace(/O/g, '0').replace(/[^0-9A-Z]/g, '');
   if (t.length >= 10 && t.length <= 16) return decodeLong(t);
   if (t.length !== 8) return null;
@@ -271,10 +296,10 @@ const styleOf = (id) => STYLES.find((x) => x.id === id);
 const regionLabel = (id) => regionOf(id).short || regionOf(id).label;
 function cfgTotal(cfg) { return cfg.kind === 'board' ? makeBoard(cfg).reduce((n, sec) => n + sec.ids.length, 0) : cfg.count; }
 function cfgLabel(cfg) {
-  if (cfg.kind === 'board') return cfg.games.map((g) => gameOf(g).label).join(' + ') + ' · ' + (cfg.custom ? 'My misses' : regionLabel(cfg.region));
+  if (cfg.kind === 'board') return cfg.games.map((g) => gameOf(g).label).join(' + ') + ' · ' + (cfg.custom ? 'My misses' : regionLabel(cfg.region)) + (cfg.hard ? ' · No borders' : '') + (cfg.langType ? ' · Typed' : '');
   return [modeOf(cfg.mode).label, regionLabel(cfg.region), cfg.count === pool(cfg.region).length ? 'All ' + cfg.count : String(cfg.count), styleOf(cfg.style).label].join(' · ') + ' · Quick';
 }
-const bestKey = (cfg) => cfg.kind === 'board' ? ['b', cfg.games.join('+'), cfg.region].join('|') : [cfg.mode, cfg.region, cfg.count, cfg.style].join('|');
+const bestKey = (cfg) => cfg.kind === 'board' ? ['b', cfg.games.join('+'), cfg.region].join('|') + (optLetters(cfg) ? '|' + optLetters(cfg) : '') : [cfg.mode, cfg.region, cfg.count, cfg.style].join('|');
 const newSeed = () => Math.floor(Math.random() * SEED_MAX);
 
 const store = {
@@ -353,13 +378,15 @@ function todayNum(now) {
   const v = (t) => +p.find((x) => x.type === t).value;
   return Math.floor(Date.UTC(v('year'), v('month') - 1, v('day')) / 86400000);
 }
+// Guess the language joins the daily games from 29 Oct 2026 (so days already played keep their run).
+const LANG_DAILY_FROM = Date.UTC(2026, 9, 29) / 86400000;
 function dailyCfg(day) {
   const r = rng((day * 2654435761) >>> 0);
-  return { kind: 'board', games: shuffle(DAILY_GAMES, r).slice(0, 2), region: DAILY_REGIONS[day % DAILY_REGIONS.length], seed: Math.floor(r() * SEED_MAX) };
+  return { kind: 'board', games: shuffle(day >= LANG_DAILY_FROM ? DAILY_GAMES.concat(['lang']) : DAILY_GAMES, r).slice(0, 2), region: DAILY_REGIONS[day % DAILY_REGIONS.length], seed: Math.floor(r() * SEED_MAX) };
 }
 const dayLabel = (day) => new Date(day * 86400000).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
 
-window.GS = { LANGS, LANG_BY, langOf, langText, recordMisses, topMisses, todayNum, dailyCfg, duelWinner, GAMES, suggest, editDistance, norm, isRight, answersFor, makeRun, makeBoard, encodeCode, decodeCode, fmtTime, pool, rng, better, compare, GAME_ORDERS, cfgLabel, DATA };
+window.GS = { withOpts, langAnswer, LANGS, LANG_BY, langOf, langText, recordMisses, topMisses, todayNum, dailyCfg, duelWinner, GAMES, suggest, editDistance, norm, isRight, answersFor, makeRun, makeBoard, encodeCode, decodeCode, fmtTime, pool, rng, better, compare, GAME_ORDERS, cfgLabel, DATA };
 if (window.GS_NO_UI) return;
 
 /* ---- shared UI: DOM helper, menus, setup ---- */
@@ -586,7 +613,7 @@ function setup() {
     ];
   }
   const cfgNow = () => st.kind === 'board'
-    ? { kind: 'board', games: st.games.slice(), region: st.region, seed: newSeed() }
+    ? withOpts({ kind: 'board', games: st.games.slice(), region: st.region, seed: newSeed() }, st)
     : { kind: 'quick', mode: st.mode, region: st.region, count: st.count, style: st.style, seed: newSeed() };
   mount(h('div', { class: 'app', 'data-screen': 'setup' },
     topbar('New run', home),
@@ -597,7 +624,9 @@ function setup() {
     st.kind === 'quick' ? quickCards() : null,
     h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Options'),
       st.kind === 'board' || st.style === 'type' ? optRow('💡 Spelling help', !!st.help, set('help')) : null,
-      st.kind === 'board' ? optRow('🧘 Practice (no clock)', !!st.practice, set('practice')) : null),
+      st.kind === 'board' ? optRow('🧘 Practice (no clock)', !!st.practice, set('practice')) : null,
+      st.kind === 'board' && st.games.some((g) => MAP_GAMES.has(g)) ? optRow('🧱 Map: no borders', !!st.hard, set('hard')) : null,
+      st.kind === 'board' && st.games.includes('lang') ? optRow('⌨️ Languages: type it', !!st.langType, set('langType')) : null),
     h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Who is playing'),
       seg([{ id: false, label: 'Just me', em: '🙋' }, { id: true, label: 'Pass the phone', em: '👥' }].concat(st.kind === 'board' ? [{ id: 'live', label: 'Online', em: '🌐' }] : []), st.kind === 'quick' && st.group === 'live' ? false : st.group, set('group'), st.kind === 'board' ? 3 : 2),
       st.group === true ? [
@@ -1126,12 +1155,13 @@ function mapGame(api) {
     return { nodes: [zones, g, dots], markers };
   }
   const main = layer(m, 'main');
-  const svg = h('svg', { class: 'map', role: 'img', 'aria-label': 'World map', preserveAspectRatio: 'xMidYMid meet' },
+  const hard = !!S.session.cfg.hard; // no borders: only coasts, until a country is answered
+  const svg = h('svg', { class: 'map' + (hard ? ' noborders' : ''), role: 'img', 'aria-label': 'World map', preserveAspectRatio: 'xMidYMid meet' },
     h('rect', { class: 'sea', x: -m.w, y: -m.h, width: m.w * 3, height: m.h * 3 }), ...main.nodes);
   // Magnified boxes (world map only).
   const insets = (view.insets || []).map((ins) => {
     const md = M[ins.map], L = layer(md, ins.name);
-    const isvg = h('svg', { class: 'map', viewBox: ins.box.join(' '), preserveAspectRatio: 'xMidYMid slice' },
+    const isvg = h('svg', { class: 'map' + (hard ? ' noborders' : ''), viewBox: ins.box.join(' '), preserveAspectRatio: 'xMidYMid slice' },
       h('rect', { class: 'sea', x: ins.box[0] - 50, y: ins.box[1] - 50, width: ins.box[2] + 100, height: ins.box[3] + 100 }), ...L.nodes);
     const box = h('div', { class: 'inset inset-' + ins.where, style: { aspectRatio: ins.box[2] + ' / ' + ins.box[3] } }, isvg, h('span', { class: 'inset-name' }, ins.name));
     isvg.addEventListener('click', (e) => tap(e.clientX, e.clientY));
@@ -1623,9 +1653,24 @@ function langGame(api) {
   const footer = h('div', { class: 'reveal-bar', hidden: true });
   const head = boardHead(api, h('div', { class: 'progress' }, foundEl));
   mount(h('div', { class: 'app grid-run' }, head, arena, footer));
+  // Typed mode (setup switch): type the language's name instead of picking it; Pass if you don't know.
+  const typed = !!S.session.cfg.langType;
+  const input = typed ? h('input', { class: 'input', type: 'text', autocomplete: 'off', autocorrect: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'go', placeholder: 'Type the language…', 'aria-label': 'The language' }) : null;
+  const verdict = h('p', { class: 'lang-verdict center' });
+  if (typed) {
+    input.addEventListener('input', () => { if (!busy && i < sec.ids.length && langAnswer(langOf(sec.ids[i]).k, input.value)) pick(langOf(sec.ids[i]).k); });
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (!busy && input.value.trim()) shake(input); } });
+  }
   function count() { foundEl.textContent = res.found.length + ' / ' + sec.ids.length + ' right · round ' + Math.min(i + 1, sec.ids.length); }
   function draw() {
     const k = sec.ids[i];
+    if (typed) {
+      verdict.textContent = ''; verdict.className = 'lang-verdict center'; input.value = ''; input.disabled = false;
+      arena.replaceChildren(h('p', { class: 'eyebrow center' }, 'Which language?'), langQuote(k), h('div', { class: 'lang-where' }),
+        h('div', { class: 'row lang-type' }, input, h('button', { class: 'btn ghost small', style: { width: 'auto', flex: '0 0 auto' }, onmousedown: (e) => e.preventDefault(), onclick: () => pick(null) }, 'Pass')), verdict);
+      input.focus({ preventScroll: true });
+      return;
+    }
     arena.replaceChildren(h('p', { class: 'eyebrow center' }, 'Which language?'), langQuote(k), h('div', { class: 'lang-where' }),
       h('div', { class: 'lang-opts' }, sec.opts[k].map((o, n) => h('button', { class: 'duel-pick lang-pick', 'data-id': o, onclick: () => pick(o) },
         h('b', null, LANG_BY[o].name), h('span', { class: 'key' }, String(n + 1))))));
@@ -1635,6 +1680,11 @@ function langGame(api) {
     busy = true; api.R.clock.pause();
     const id = sec.ids[i], k = langOf(id).k;
     if (o === k) res.found.push(id); else try { navigator.vibrate && navigator.vibrate(40); } catch (e) { /* no vibration */ }
+    if (typed) {
+      input.disabled = true;
+      verdict.textContent = o === k ? '✓ ' + LANG_BY[k].name : (o === null ? '' : '✗ ') + 'It was ' + LANG_BY[k].name;
+      verdict.className = 'lang-verdict center ' + (o === k ? 'ok' : 'bad');
+    }
     arena.querySelectorAll('.lang-pick').forEach((btn) => {
       const b = btn.getAttribute('data-id');
       btn.classList.add(b === k ? 'right' : b === o ? 'wrong' : 'other');
@@ -1645,10 +1695,10 @@ function langGame(api) {
       busy = false; api.R.clock.resume(); i++;
       if (i >= sec.ids.length) { api.done(); return; }
       count(); draw();
-    }, o === k ? 700 : 1400);
+    }, o === k ? 700 : 1600);
   }
   const onKey = (e) => {
-    if (busy || revealed || i >= sec.ids.length || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (typed || busy || revealed || i >= sec.ids.length || e.ctrlKey || e.metaKey || e.altKey) return;
     const n = '1234'.indexOf(e.key);
     if (n >= 0 && sec.opts[sec.ids[i]][n]) pick(sec.opts[sec.ids[i]][n]);
   };
@@ -1912,6 +1962,7 @@ function onlineHub(prefill) {
       h('div', { class: 'row' },
         h('button', { class: 'btn ghost small', onclick: () => scanQR((code) => { room.value = code; liveJoin(code); }) }, '📷 Scan QR'),
         h('button', { class: 'btn primary small', onclick: () => liveJoin(room.value) }, 'Join'))),
+    (() => { const c = h2hCard(); return c ? h('div', { class: 'card' }, c) : null; })(),
     h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Challenge code'),
       chal = h('input', { class: 'input code', style: { fontSize: '24px' }, placeholder: 'ABCD-1234', maxlength: 20, autocapitalize: 'characters', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Challenge code', oninput: () => checkChal(), onkeydown: (e) => { if (e.key === 'Enter') playChallenge(); } }),
       chalInfo = h('p', { class: 'small muted' }),
@@ -2077,6 +2128,32 @@ function liveBar() {
   if (prev) prev();
   LIVE.unwatch = NET.watch(LIVE.code, (room) => { LIVE.room = room; draw(room); if (room && room.state === 'play' && room.round > LIVE.startedRound) liveBegin(room); });
 }
+/* Head-to-head: once everyone in a round has finished, each rival you raced counts a win, loss or tie for you
+   (on this device, by their player id, so a new name keeps the record). gs_h2h_v1 = { uid: { name, w, l, t } }. */
+function h2hRecord(room) {
+  const me = room.players && room.players[NET.uid()];
+  if (!me || !me.done || !room.round) return;
+  const st = liveStandings(room);
+  if (st.some((p) => !p.done)) return;
+  const seen = store.get('gs_h2h_seen_v1', []), key = LIVE.code + ':' + room.round + ':' + room.createdAt;
+  if (seen.includes(key)) return;
+  const book = store.get('gs_h2h_v1', {}), mine = { correct: me.correct, time: me.time };
+  st.forEach((p) => {
+    if (p.id === NET.uid()) return;
+    const r = book[p.id] = book[p.id] || { name: p.name, w: 0, l: 0, t: 0 };
+    r.name = p.name; r.at = Date.now();
+    if (better(mine, p, 'board')) r.w++; else if (better(p, mine, 'board')) r.l++; else r.t++;
+  });
+  store.set('gs_h2h_v1', book);
+  store.set('gs_h2h_seen_v1', seen.concat([key]).slice(-200));
+}
+function h2hCard(ids) {
+  const book = store.get('gs_h2h_v1', {});
+  const rows = Object.entries(book).filter(([id]) => !ids || ids.includes(id)).sort((a, b) => (b[1].at || 0) - (a[1].at || 0)).slice(0, ids ? 8 : 6);
+  if (!rows.length) return null;
+  return h('div', { class: 'h2h' }, h('p', { class: 'eyebrow' }, '⚔️ Head to head'),
+    h('ul', { class: 'pairs' }, rows.map(([, r]) => h('li', null, h('span', null, 'You vs ' + r.name), h('b', { class: 'num ' + (r.w > r.l ? 'up' : r.w < r.l ? 'down' : '') }, r.w + ' – ' + r.l + (r.t ? ' · ' + r.t + 'T' : ''))))));
+}
 // On the results screen: everyone's results, updating as they finish.
 function liveResults() {
   const box = h('div', { class: 'card sky' });
@@ -2087,6 +2164,7 @@ function liveResults() {
       h('ul', { class: 'list board' }, st.map((p, i) => h('li', { class: i === 0 && p.done ? 'first' : null }, h('span', { class: 'rank' }, String(i + 1)),
         h('div', { class: 'q' }, p.name + (p.id === NET.uid() ? ' (you)' : ''), h('small', null, p.done ? p.correct + '/' + p.total + ' found' : 'playing · ' + p.found + '/' + p.total)),
         h('div', { class: 't' }, p.done ? fmtTime(p.time) : '…')))),
+      (h2hRecord(room), h2hCard(st.map((p) => p.id))),
       host ? h('button', { class: 'btn primary small', onclick: () => liveStartRound() }, '🔁 Another round') : h('p', { class: 'small muted center' }, 'The host can start another round'));
   };
   if (LIVE.room) draw(LIVE.room);
