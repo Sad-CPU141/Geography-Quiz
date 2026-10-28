@@ -5,12 +5,21 @@
    Small countries, Seterra style: a little white dot where a country is too small to see, a dashed box round a
    spread-out island group, and (on the world map, on a big enough screen) magnified Caribbean and Pacific boxes.
    A tap on the sea just next to a dot or box counts for it. */
+// The map view for a run: its region's view; for several continents, the box round all of them on the world
+// map (the whole world if Oceania is one of them — it's split across the world map's edges).
+function mapView(M, cfg) {
+  const rs = cfg.regions;
+  if (!rs || !rs.length) return M.views[cfg.region];
+  if (rs.includes('Oceania')) return M.views.world;
+  const union = (key) => { const bs = rs.map((r) => M.views[r][key] || M.views[r].box); const x0 = Math.min(...bs.map((b) => b[0])), y0 = Math.min(...bs.map((b) => b[1])); return [x0, y0, Math.max(...bs.map((b) => b[0] + b[2])) - x0, Math.max(...bs.map((b) => b[1] + b[3])) - y0]; };
+  return { map: 'world', box: union('box'), tight: union('tight') };
+}
 function mapGame(api) {
   const { sec, res } = api;
   // Three ways to play the map: 'map' (tap the named country), 'flagmap' (tap the country of the flag shown),
   // 'mapname' (a country lights up in gold; type its name).
   const mode = sec.game, naming = mode === 'mapname';
-  const M = window.GS_MAP, view = M.views[S.session.cfg.region], m = M[view.map];
+  const M = window.GS_MAP, view = mapView(M, S.session.cfg), m = M[view.map];
   const ids = sec.ids, playable = new Set(ids);
   const queue = ids.slice();
   const tries = res.tries;

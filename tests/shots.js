@@ -332,6 +332,47 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
   }
   if (only === 'drag') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }
 
+  // Where: Mixed (N random countries) and Pick several (more than one continent).
+  if (!only || only === 'where') {
+    const ctx = await b.newContext({ viewport: { width: 360, height: 780 }, deviceScaleFactor: 2 });
+    const page = await ctx.newPage();
+    const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(BASE);
+    await setupBoard(page, ['Flags', 'Map'], 'World');
+    await page.click('.opt:has-text("Mixed")');
+    await page.fill('.mixn', '30'); await page.press('.mixn', 'Enter'); await page.locator('.mixn').blur();
+    await page.waitForTimeout(200);
+    await page.screenshot({ path: path.join(outDir, 'where-mixed.png'), fullPage: true });
+    await page.click('button:has-text("Start")');
+    ok(/Mixed 30/.test(await page.textContent('.topbar')) && /Flags 30/.test(await page.textContent('.cover')), 'Mixed 30: label and 30 per game');
+    await page.click('button:has-text("Go")'); await page.waitForSelector('.tile');
+    const flagIds = await page.$$eval('.tile', (ts) => ts.map((t) => t.dataset.id).sort());
+    ok(flagIds.length === 30, 'Mixed 30: 30 flag tiles');
+    await page.click('button:has-text("Give up")'); await page.click('button:has-text("Give up on")'); await page.click('.reveal-bar button');
+    await page.waitForSelector('svg.map');
+    const mapIds = await page.$$eval('svg.map:not(.inset svg) path.cty:not(.off)', (ps) => [...new Set(ps.map((p) => p.dataset.id))].sort());
+    ok(mapIds.join() === flagIds.join(), 'Mixed 30: the map game uses the same 30 countries (' + mapIds.length + ')');
+    // Pick several: Africa + Europe.
+    await page.goto(BASE);
+    await setupBoard(page, ['Flags'], 'World');
+    await page.click('.optrow:has-text("Pick several") .switch');
+    await page.click('.seg .opt:has-text("Africa")'); await page.click('.seg .opt:has-text("Europe")');
+    ok(/100 countries/.test(await page.textContent('.card:has-text("Where")')), 'Pick several: Africa + Europe = 100 countries');
+    await page.screenshot({ path: path.join(outDir, 'where-several.png'), fullPage: true });
+    await page.click('button:has-text("Start")');
+    ok(/Africa \+ Europe/.test(await page.textContent('.topbar')), 'Pick several: run name');
+    await page.click('button:has-text("Go")'); await page.waitForSelector('.tile');
+    ok(await page.$$eval('.tile', (t) => t.length) === 100, 'Pick several: 100 flag tiles');
+    // None picked: can't start.
+    await page.goto(BASE);
+    await page.click('button:has-text("▶ New run")'); await page.waitForSelector('.seg');
+    for (const r of ['Africa', 'Europe']) await page.click('.seg .opt[aria-pressed="true"]:has-text("' + r + '")');
+    ok(await page.$('button:has-text("Start")[disabled]') !== null, 'Pick several with nothing picked: Start is off');
+    ok(errors.length === 0, 'where: no page errors ' + JSON.stringify(errors));
+    await ctx.close();
+  }
+  if (only === 'where') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }
+
   // Options: Map with no borders, and typed languages — switches appear only with those games, go into the
   // code (+N / +T) and change how the games play.
   if (!only || only === 'opts') {

@@ -140,6 +140,21 @@ ok(GS.LANGS.every((l) => GS.langAnswer(l.k, l.name)), 'every language accepts it
 const from = Date.UTC(2026, 9, 29) / 86400000;
 ok([...Array(60)].some((_, i) => GS.dailyCfg(from + i).games.includes('lang')), 'daily: Guess the language comes up from 29 Oct');
 ok([...Array(300)].every((_, i) => !GS.dailyCfg(from - 1 - i).games.includes('lang')), 'daily: earlier days never had it');
+// Where: several continents and N random countries; both ride in the code (+R<mask>, +C<n>).
+const w1 = GS.withWhere({ kind: 'board', games: ['flags', 'map'], region: 'world', seed: 4321 }, ['Africa', 'Europe']);
+ok(GS.cfgPool(w1).length === 54 + 46 && GS.whereLabel(w1) === 'Africa + Europe', 'several continents: pool and label');
+const cw1 = GS.encodeCode(w1); ok(JSON.stringify(GS.decodeCode(cw1)) === JSON.stringify(w1), 'several continents in the code: ' + cw1);
+const w2 = GS.withWhere({ kind: 'board', games: ['flags', 'capitals'], region: 'world', seed: 99 }, [], 30);
+const p2 = GS.cfgPool(w2), mb2 = GS.makeBoard(w2);
+ok(p2.length === 30 && mb2.every((sec) => sec.ids.length === 30 && [...sec.ids].sort().join() === p2.join()), 'Mixed 30: the same 30 countries in every game');
+ok(GS.cfgPool(Object.assign({}, w2, { seed: 100 })).join() !== p2.join(), 'Mixed: a new seed picks other countries');
+const cw2 = GS.encodeCode(w2); ok(/\+C30$/.test(cw2) && JSON.stringify(GS.decodeCode(cw2)) === JSON.stringify(w2) && GS.whereLabel(w2) === 'Mixed 30', 'Mixed in the code: ' + cw2);
+const w3 = GS.withWhere({ kind: 'board', games: ['lang'], region: 'world', seed: 7 }, ['Asia', 'Oceania'], 15);
+ok(GS.cfgPool(w3).length === 15 && GS.cfgPool(w3).every((id) => ['Asia', 'Oceania'].includes(GS.DATA.find((c) => c.id === id).region)) && JSON.stringify(GS.decodeCode(GS.encodeCode(w3))) === JSON.stringify(w3), 'several continents + random count');
+ok(GS.withWhere({ kind: 'board', games: ['flags'], region: 'world', seed: 1 }, ['Asia']).region === 'Asia' && !GS.withWhere({ kind: 'board', games: ['flags'], region: 'world', seed: 1 }, GS.CONTINENTS).regions, 'one continent = that region; all six = world');
+const q1 = GS.withWhere({ kind: 'quick', mode: 'flags', region: 'world', count: 25, style: 'type', seed: 5 }, ['Europe', 'South America']);
+ok(GS.makeRun(q1).every((q) => ['Europe', 'South America'].includes(GS.DATA.find((c) => c.id === q.id).region)) && GS.encodeCode(GS.decodeCode(GS.encodeCode(q1))) === GS.encodeCode(q1) && GS.decodeCode(GS.encodeCode(q1)).regions.join() === q1.regions.join(), 'Quick fire with several continents');
+ok(GS.decodeCode('ABCD-EFGH+R3') === null || true, 'odd codes don\'t crash');
 // Daily run: same all day, different tomorrow, always two games and a continent.
 const d1 = GS.dailyCfg(20388), d2 = GS.dailyCfg(20388), d3 = GS.dailyCfg(20389);
 ok(JSON.stringify(d1) === JSON.stringify(d2) && JSON.stringify(d1) !== JSON.stringify(d3), 'daily: same day same run, next day different');

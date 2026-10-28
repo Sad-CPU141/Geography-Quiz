@@ -24,7 +24,7 @@ function startSession(cfg, players, challenge, daily, practice) {
   S.session = { cfg, players, idx: 0, scores: [], challenge, help: !!S.setup.help, daily: daily != null ? daily : null, practice: pr };
   if (cfg.kind === 'board') {
     S.session.board = makeBoard(cfg);
-    if (cfg.games.some((g) => g === 'flags' || g === 'flagmap' || g === 'duel')) preloadFlags(pool(cfg.region));
+    if (cfg.games.some((g) => g === 'flags' || g === 'flagmap' || g === 'duel')) preloadFlags(cfgPool(cfg));
     if (cfg.games.some((g) => MAP_GAMES.has(g))) loadMap().catch(() => toast('The map didn\'t load. Check your connection.'));
   } else {
     S.session.questions = makeRun(cfg);

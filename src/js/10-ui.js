@@ -175,7 +175,13 @@ function setup() {
   const save = () => store.set('gs_setup_v2', st);
   const set = (k) => (v) => { st[k] = v; save(); setup(); };
   const regionItems = REGIONS.map((r) => ({ id: r.id, label: r.short || r.label, sub: pool(r.id).length + '' }));
-  const n = pool(st.region).length;
+  if (!Array.isArray(st.regions)) st.regions = [];
+  if (!(st.mixN >= 1)) st.mixN = 30;
+  const mixedOk = st.kind === 'board'; // Mixed (N random countries) is for board runs; Quick fire has its own "How many"
+  // Where this run is: one region, several continents, or N random countries.
+  const where = (cfg) => st.multi ? withWhere(cfg, st.regions) : st.region === 'mixed' ? (mixedOk ? withWhere(Object.assign(cfg, { region: 'world' }), [], Math.min(196, st.mixN)) : Object.assign(cfg, { region: 'world' })) : cfg;
+  const noWhere = st.multi && !st.regions.length;
+  const n = noWhere ? 0 : cfgPool(where({ kind: 'board', games: [], region: st.region, seed: 1 })).length;
   let nameInput;
   const addPlayer = () => {
     const v = (nameInput.value || '').trim().slice(0, 24); if (!v) return;
@@ -212,7 +218,7 @@ function setup() {
       st.games.length > 1 ? h('p', { class: 'small muted' }, st.games.map((g) => gameOf(g).label).join(' → ')) : null);
   }
   function quickCards() {
-    const counts = (st.region === 'world' ? [10, 25, 50] : [10, 20]).filter((x) => x < n).concat([n]);
+    const counts = (n > 60 ? [10, 25, 50] : [10, 20]).filter((x) => x < n).concat([n]);
     if (!counts.includes(st.count)) st.count = counts.includes(25) ? 25 : counts[Math.min(1, counts.length - 1)];
     return [
       h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'What to name'), seg(MODES, st.mode, set('mode'), 4)),
@@ -222,14 +228,29 @@ function setup() {
     ];
   }
   const cfgNow = () => st.kind === 'board'
-    ? withOpts({ kind: 'board', games: st.games.slice(), region: st.region, seed: newSeed() }, st)
-    : { kind: 'quick', mode: st.mode, region: st.region, count: st.count, style: st.style, seed: newSeed() };
+    ? withOpts(where({ kind: 'board', games: st.games.slice(), region: st.region, seed: newSeed() }), st)
+    : where({ kind: 'quick', mode: st.mode, region: st.region, count: st.count, style: st.style, seed: newSeed() });
+  const toggleRegion = (r) => { st.regions = st.regions.includes(r) ? st.regions.filter((x) => x !== r) : st.regions.concat([r]); save(); setup(); };
+  const mixItem = { id: 'mixed', label: 'Mixed', em: '🎲', sub: String(st.mixN) };
+  function whereCard() {
+    const cur = st.region === 'mixed' && !mixedOk ? 'world' : st.region;
+    return h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Where'),
+      st.multi
+        ? h('div', { class: 'seg', style: { '--n': 3 } }, CONTINENTS.map((r) => h('button', { class: 'opt', 'aria-pressed': String(st.regions.includes(r)), onclick: () => toggleRegion(r) },
+          regionLabel(r), h('small', null, String(pool(r).length)))))
+        : [seg(regionItems.slice(0, 4), cur, set('region'), 4), seg(regionItems.slice(4).concat(mixedOk ? [mixItem] : []), cur, set('region'), mixedOk ? 4 : 3)],
+      !st.multi && st.region === 'mixed' && mixedOk ? h('div', { class: 'optrow' }, h('span', null, 'Random countries'),
+        h('input', { class: 'input num mixn', type: 'number', inputmode: 'numeric', min: 1, max: 196, value: String(st.mixN), 'aria-label': 'How many random countries',
+          onchange: (e) => { st.mixN = Math.max(1, Math.min(196, Math.round(+e.target.value) || 30)); save(); setup(); } })) : null,
+      optRow('🗺️ Pick several', !!st.multi, (v) => { st.multi = v; if (v && !st.regions.length && CONTINENTS.includes(st.region)) st.regions = [st.region]; save(); setup(); }),
+      st.multi ? h('p', { class: 'small muted' }, st.regions.length ? n + ' countries' : 'Pick at least one') : null);
+  }
   mount(h('div', { class: 'app', 'data-screen': 'setup' },
     topbar('New run', home),
     h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Style'),
       seg([{ id: 'board', label: 'Full board', em: '🧩', sub: 'All at once' }, { id: 'quick', label: 'Quick fire', em: '⚡', sub: 'One at a time' }], st.kind, set('kind'), 2)),
     st.kind === 'board' ? gamesCard() : null,
-    h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Where'), seg(regionItems.slice(0, 4), st.region, set('region'), 4), seg(regionItems.slice(4), st.region, set('region'), 3)),
+    whereCard(),
     st.kind === 'quick' ? quickCards() : null,
     h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Options'),
       st.kind === 'board' || st.style === 'type' ? optRow('💡 Spelling help', !!st.help, set('help')) : null,
@@ -242,9 +263,9 @@ function setup() {
         h('div', { class: 'chips' }, S.players.map((p, i) => h('span', { class: 'chip' }, p, h('button', { 'aria-label': 'Remove ' + p, onclick: () => { S.players.splice(i, 1); store.set('gs_players_v1', S.players); setup(); } }, '✕')))),
         h('div', { class: 'row' }, nameInput = h('input', { id: 'pname', class: 'input', placeholder: 'Add a player', maxlength: 24, onkeydown: (e) => { if (e.key === 'Enter') addPlayer(); } }), h('button', { class: 'btn ghost small', style: { flex: '0 0 auto', width: 'auto' }, onclick: addPlayer }, '+ Add')),
       ] : nameField()),
-    st.group === 'live' && st.kind === 'board' ? h('button', { class: 'btn primary', onclick: () => liveCreate(cfgNow()) }, '🌐 Create room') :
+    st.group === 'live' && st.kind === 'board' ? h('button', { class: 'btn primary', disabled: noWhere, onclick: () => liveCreate(cfgNow()) }, '🌐 Create room') :
     h('button', {
-      class: 'btn primary', disabled: st.group === true && S.players.length < 2,
+      class: 'btn primary', disabled: noWhere || (st.group === true && S.players.length < 2),
       onclick: () => startSession(cfgNow(), st.group === true ? S.players.slice() : [S.myName || 'You'], null),
     }, st.group === true && S.players.length < 2 ? 'Add at least 2 players' : '▶ Start'),
   ));

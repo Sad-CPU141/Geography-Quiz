@@ -1,7 +1,7 @@
-/* Geography Speedrun 2c9b504e30 — built from src/js/ by build.js. Edit src/, not this file. */
+/* Geography Speedrun f31f5c308c — built from src/js/ by build.js. Edit src/, not this file. */
 (function () {
 'use strict';
-const APP_VERSION = "2c9b504e30";
+const APP_VERSION = "f31f5c308c";
 /* ---- core: data, answer matching, runs, challenge codes (no DOM; tested by tests/run.js) ---- */
 const DATA = window.GS_DATA.countries;
 const BY_ID = Object.fromEntries(DATA.map((c) => [c.id, c]));
@@ -85,12 +85,20 @@ function rng(seed) {
 }
 function shuffle(arr, r) { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 const pool = (region) => DATA.filter((c) => region === 'world' || c.region === region).map((c) => c.id).sort();
+// The countries in a run: one continent or the world (cfg.region), several continents (cfg.regions), and
+// optionally only N of them picked at random from those (cfg.limit — "Mixed"; the same seed = the same N).
+const CONTINENTS = ['Africa', 'Asia', 'Europe', 'North America', 'South America', 'Oceania'];
+function cfgPool(cfg) {
+  let ids = cfg.regions && cfg.regions.length ? DATA.filter((c) => cfg.regions.includes(c.region)).map((c) => c.id).sort() : pool(cfg.region);
+  if (cfg.limit && cfg.limit < ids.length) ids = shuffle(ids, rng((cfg.seed * 2654435761 + 97) >>> 0)).slice(0, cfg.limit).sort();
+  return ids;
+}
 const byName = (ids) => ids.slice().sort((a, b) => BY_ID[a].name.localeCompare(BY_ID[b].name));
 
 // Quick fire: the questions for a config. Same config + seed → same run (that's what makes challenges fair).
 function makeRun(cfg) {
   const r = rng(cfg.seed);
-  const ids = shuffle(pool(cfg.region), r).slice(0, cfg.count);
+  const ids = shuffle(cfgPool(cfg), r).slice(0, cfg.count);
   return ids.map((id) => {
     const kind = cfg.mode === 'mix' ? KINDS[Math.floor(r() * 3)] : cfg.mode === 'flags' ? 'flag' : cfg.mode === 'shapes' ? 'shape' : 'capital';
     const q = { id, kind };
@@ -110,7 +118,7 @@ function makeBoard(cfg) {
   return cfg.games.map((g, i) => {
     const r = rng((cfg.seed * 31 + i * 7919 + g.length * 104729) >>> 0);
     // A practice run of your misses brings its own list of countries (cfg.custom[game]).
-    const ids = cfg.custom && cfg.custom[g] ? cfg.custom[g].slice().sort() : pool(cfg.region);
+    const ids = cfg.custom && cfg.custom[g] ? cfg.custom[g].slice().sort() : cfgPool(cfg);
     const sec = { game: g, kind: kindOfGame(g), ids: shuffle(ids, r) };
     if (g === 'borders') {
       // Countries with at least one land neighbour in the game; each neighbour is one answer ("de>fr").
@@ -129,7 +137,7 @@ function makeBoard(cfg) {
       sec.ids = pairs;
     } else if (g === 'lang') {
       // Up to 20 official languages of the region's countries; 4 options each (see langOptions).
-      const here = new Set(pool(cfg.region));
+      const here = new Set(cfgPool(cfg));
       // A region with under 10 languages (the Americas) also gets their other sentences, up to 10 rounds.
       const langs = LANGS.filter((l) => l.countries.some((c) => here.has(c)));
       let ids = shuffle(langs.map((l) => l.k), r).slice(0, 20);
@@ -232,7 +240,20 @@ function withOpts(cfg, o) {
   if (o && o.langType && cfg.kind === 'board' && cfg.games.includes('lang')) cfg.langType = true; else delete cfg.langType;
   return cfg;
 }
-const optLetters = (cfg) => (cfg.hard ? 'N' : '') + (cfg.langType ? 'T' : '');
+// Where (after the "+" too): R<mask> = several continents (bit i = CONTINENTS[i]), C<n> = n random countries.
+const regionMask = (cfg) => (cfg.regions || []).reduce((m, r) => m | (1 << CONTINENTS.indexOf(r)), 0);
+const optLetters = (cfg) => (cfg.hard ? 'N' : '') + (cfg.langType ? 'T' : '') + (cfg.regions && cfg.regions.length ? 'R' + regionMask(cfg) : '') + (cfg.limit ? 'C' + cfg.limit : '');
+// Several continents / a random number: tidy into the canonical form (1 continent → region; all 6 → world).
+function withWhere(cfg, regions, limit) {
+  delete cfg.regions; delete cfg.limit;
+  const rs = CONTINENTS.filter((r) => (regions || []).includes(r));
+  if (rs.length === 1) cfg.region = rs[0];
+  else if (rs.length > 1 && rs.length < 6) { cfg.region = 'world'; cfg.regions = rs; }
+  else if (rs.length === 6) cfg.region = 'world';
+  const n = Math.floor(+limit || 0);
+  if (n >= 1 && n < cfgPool(cfg).length) cfg.limit = n;
+  return cfg;
+}
 function encodeCode(cfg) {
   const f = optLetters(cfg);
   return encodeBase(cfg) + (f ? '+' + f : '');
@@ -247,8 +268,15 @@ function encodeBase(cfg) {
 }
 function decodeCode(text) {
   const [main, flags] = String(text || '').split('+');
-  const cfg = decodeBase(main);
-  return cfg && withOpts(cfg, { hard: /N/i.test(flags || ''), langType: /T/i.test(flags || '') });
+  const cfg = decodeBase(main), f = String(flags || '').toUpperCase();
+  if (!cfg) return null;
+  const mask = /R(\d+)/.exec(f), lim = /C(\d+)/.exec(f);
+  if (mask || lim) {
+    if (cfg.region !== 'world' && mask) return null;
+    withWhere(cfg, mask ? CONTINENTS.filter((r, i) => +mask[1] & (1 << i)) : [], lim ? +lim[1] : 0);
+    if (cfg.kind === 'quick' && cfg.count > cfgPool(cfg).length) return null;
+  }
+  return withOpts(cfg, { hard: /N/.test(f), langType: /T/.test(f) });
 }
 function decodeBase(text) {
   const t = String(text || '').toUpperCase().replace(/[IL]/g, '1').replace(/O/g, '0').replace(/[^0-9A-Z]/g, '');
@@ -294,12 +322,18 @@ const modeOf = (id) => MODES.find((x) => x.id === id);
 const regionOf = (id) => REGIONS.find((x) => x.id === id);
 const styleOf = (id) => STYLES.find((x) => x.id === id);
 const regionLabel = (id) => regionOf(id).short || regionOf(id).label;
+// "Africa + Asia", "Mixed 30", "Europe · 20 random"…
+function whereLabel(cfg) {
+  const base = cfg.regions && cfg.regions.length ? cfg.regions.map(regionLabel).join(' + ') : regionLabel(cfg.region);
+  if (!cfg.limit) return base;
+  return cfg.region === 'world' && !(cfg.regions && cfg.regions.length) ? 'Mixed ' + cfg.limit : base + ' · ' + cfg.limit + ' random';
+}
 function cfgTotal(cfg) { return cfg.kind === 'board' ? makeBoard(cfg).reduce((n, sec) => n + sec.ids.length, 0) : cfg.count; }
 function cfgLabel(cfg) {
-  if (cfg.kind === 'board') return cfg.games.map((g) => gameOf(g).label).join(' + ') + ' · ' + (cfg.custom ? 'My misses' : regionLabel(cfg.region)) + (cfg.hard ? ' · No borders' : '') + (cfg.langType ? ' · Typed' : '');
-  return [modeOf(cfg.mode).label, regionLabel(cfg.region), cfg.count === pool(cfg.region).length ? 'All ' + cfg.count : String(cfg.count), styleOf(cfg.style).label].join(' · ') + ' · Quick';
+  if (cfg.kind === 'board') return cfg.games.map((g) => gameOf(g).label).join(' + ') + ' · ' + (cfg.custom ? 'My misses' : whereLabel(cfg)) + (cfg.hard ? ' · No borders' : '') + (cfg.langType ? ' · Typed' : '');
+  return [modeOf(cfg.mode).label, whereLabel(cfg), cfg.count === cfgPool(cfg).length ? 'All ' + cfg.count : String(cfg.count), styleOf(cfg.style).label].join(' · ') + ' · Quick';
 }
-const bestKey = (cfg) => cfg.kind === 'board' ? ['b', cfg.games.join('+'), cfg.region].join('|') + (optLetters(cfg) ? '|' + optLetters(cfg) : '') : [cfg.mode, cfg.region, cfg.count, cfg.style].join('|');
+const bestKey = (cfg) => cfg.kind === 'board' ? ['b', cfg.games.join('+'), cfg.region].join('|') + (optLetters(cfg) ? '|' + optLetters(cfg) : '') : [cfg.mode, cfg.region, cfg.count, cfg.style].join('|') + (optLetters(cfg) ? '|' + optLetters(cfg) : '');
 const newSeed = () => Math.floor(Math.random() * SEED_MAX);
 
 const store = {
@@ -386,7 +420,7 @@ function dailyCfg(day) {
 }
 const dayLabel = (day) => new Date(day * 86400000).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
 
-window.GS = { withOpts, langAnswer, LANGS, LANG_BY, langOf, langText, recordMisses, topMisses, todayNum, dailyCfg, duelWinner, GAMES, suggest, editDistance, norm, isRight, answersFor, makeRun, makeBoard, encodeCode, decodeCode, fmtTime, pool, rng, better, compare, GAME_ORDERS, cfgLabel, DATA };
+window.GS = { withWhere, cfgPool, whereLabel, CONTINENTS, withOpts, langAnswer, LANGS, LANG_BY, langOf, langText, recordMisses, topMisses, todayNum, dailyCfg, duelWinner, GAMES, suggest, editDistance, norm, isRight, answersFor, makeRun, makeBoard, encodeCode, decodeCode, fmtTime, pool, rng, better, compare, GAME_ORDERS, cfgLabel, DATA };
 if (window.GS_NO_UI) return;
 
 /* ---- shared UI: DOM helper, menus, setup ---- */
@@ -566,7 +600,13 @@ function setup() {
   const save = () => store.set('gs_setup_v2', st);
   const set = (k) => (v) => { st[k] = v; save(); setup(); };
   const regionItems = REGIONS.map((r) => ({ id: r.id, label: r.short || r.label, sub: pool(r.id).length + '' }));
-  const n = pool(st.region).length;
+  if (!Array.isArray(st.regions)) st.regions = [];
+  if (!(st.mixN >= 1)) st.mixN = 30;
+  const mixedOk = st.kind === 'board'; // Mixed (N random countries) is for board runs; Quick fire has its own "How many"
+  // Where this run is: one region, several continents, or N random countries.
+  const where = (cfg) => st.multi ? withWhere(cfg, st.regions) : st.region === 'mixed' ? (mixedOk ? withWhere(Object.assign(cfg, { region: 'world' }), [], Math.min(196, st.mixN)) : Object.assign(cfg, { region: 'world' })) : cfg;
+  const noWhere = st.multi && !st.regions.length;
+  const n = noWhere ? 0 : cfgPool(where({ kind: 'board', games: [], region: st.region, seed: 1 })).length;
   let nameInput;
   const addPlayer = () => {
     const v = (nameInput.value || '').trim().slice(0, 24); if (!v) return;
@@ -603,7 +643,7 @@ function setup() {
       st.games.length > 1 ? h('p', { class: 'small muted' }, st.games.map((g) => gameOf(g).label).join(' → ')) : null);
   }
   function quickCards() {
-    const counts = (st.region === 'world' ? [10, 25, 50] : [10, 20]).filter((x) => x < n).concat([n]);
+    const counts = (n > 60 ? [10, 25, 50] : [10, 20]).filter((x) => x < n).concat([n]);
     if (!counts.includes(st.count)) st.count = counts.includes(25) ? 25 : counts[Math.min(1, counts.length - 1)];
     return [
       h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'What to name'), seg(MODES, st.mode, set('mode'), 4)),
@@ -613,14 +653,29 @@ function setup() {
     ];
   }
   const cfgNow = () => st.kind === 'board'
-    ? withOpts({ kind: 'board', games: st.games.slice(), region: st.region, seed: newSeed() }, st)
-    : { kind: 'quick', mode: st.mode, region: st.region, count: st.count, style: st.style, seed: newSeed() };
+    ? withOpts(where({ kind: 'board', games: st.games.slice(), region: st.region, seed: newSeed() }), st)
+    : where({ kind: 'quick', mode: st.mode, region: st.region, count: st.count, style: st.style, seed: newSeed() });
+  const toggleRegion = (r) => { st.regions = st.regions.includes(r) ? st.regions.filter((x) => x !== r) : st.regions.concat([r]); save(); setup(); };
+  const mixItem = { id: 'mixed', label: 'Mixed', em: '🎲', sub: String(st.mixN) };
+  function whereCard() {
+    const cur = st.region === 'mixed' && !mixedOk ? 'world' : st.region;
+    return h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Where'),
+      st.multi
+        ? h('div', { class: 'seg', style: { '--n': 3 } }, CONTINENTS.map((r) => h('button', { class: 'opt', 'aria-pressed': String(st.regions.includes(r)), onclick: () => toggleRegion(r) },
+          regionLabel(r), h('small', null, String(pool(r).length)))))
+        : [seg(regionItems.slice(0, 4), cur, set('region'), 4), seg(regionItems.slice(4).concat(mixedOk ? [mixItem] : []), cur, set('region'), mixedOk ? 4 : 3)],
+      !st.multi && st.region === 'mixed' && mixedOk ? h('div', { class: 'optrow' }, h('span', null, 'Random countries'),
+        h('input', { class: 'input num mixn', type: 'number', inputmode: 'numeric', min: 1, max: 196, value: String(st.mixN), 'aria-label': 'How many random countries',
+          onchange: (e) => { st.mixN = Math.max(1, Math.min(196, Math.round(+e.target.value) || 30)); save(); setup(); } })) : null,
+      optRow('🗺️ Pick several', !!st.multi, (v) => { st.multi = v; if (v && !st.regions.length && CONTINENTS.includes(st.region)) st.regions = [st.region]; save(); setup(); }),
+      st.multi ? h('p', { class: 'small muted' }, st.regions.length ? n + ' countries' : 'Pick at least one') : null);
+  }
   mount(h('div', { class: 'app', 'data-screen': 'setup' },
     topbar('New run', home),
     h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Style'),
       seg([{ id: 'board', label: 'Full board', em: '🧩', sub: 'All at once' }, { id: 'quick', label: 'Quick fire', em: '⚡', sub: 'One at a time' }], st.kind, set('kind'), 2)),
     st.kind === 'board' ? gamesCard() : null,
-    h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Where'), seg(regionItems.slice(0, 4), st.region, set('region'), 4), seg(regionItems.slice(4), st.region, set('region'), 3)),
+    whereCard(),
     st.kind === 'quick' ? quickCards() : null,
     h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Options'),
       st.kind === 'board' || st.style === 'type' ? optRow('💡 Spelling help', !!st.help, set('help')) : null,
@@ -633,9 +688,9 @@ function setup() {
         h('div', { class: 'chips' }, S.players.map((p, i) => h('span', { class: 'chip' }, p, h('button', { 'aria-label': 'Remove ' + p, onclick: () => { S.players.splice(i, 1); store.set('gs_players_v1', S.players); setup(); } }, '✕')))),
         h('div', { class: 'row' }, nameInput = h('input', { id: 'pname', class: 'input', placeholder: 'Add a player', maxlength: 24, onkeydown: (e) => { if (e.key === 'Enter') addPlayer(); } }), h('button', { class: 'btn ghost small', style: { flex: '0 0 auto', width: 'auto' }, onclick: addPlayer }, '+ Add')),
       ] : nameField()),
-    st.group === 'live' && st.kind === 'board' ? h('button', { class: 'btn primary', onclick: () => liveCreate(cfgNow()) }, '🌐 Create room') :
+    st.group === 'live' && st.kind === 'board' ? h('button', { class: 'btn primary', disabled: noWhere, onclick: () => liveCreate(cfgNow()) }, '🌐 Create room') :
     h('button', {
-      class: 'btn primary', disabled: st.group === true && S.players.length < 2,
+      class: 'btn primary', disabled: noWhere || (st.group === true && S.players.length < 2),
       onclick: () => startSession(cfgNow(), st.group === true ? S.players.slice() : [S.myName || 'You'], null),
     }, st.group === true && S.players.length < 2 ? 'Add at least 2 players' : '▶ Start'),
   ));
@@ -719,7 +774,7 @@ function startSession(cfg, players, challenge, daily, practice) {
   S.session = { cfg, players, idx: 0, scores: [], challenge, help: !!S.setup.help, daily: daily != null ? daily : null, practice: pr };
   if (cfg.kind === 'board') {
     S.session.board = makeBoard(cfg);
-    if (cfg.games.some((g) => g === 'flags' || g === 'flagmap' || g === 'duel')) preloadFlags(pool(cfg.region));
+    if (cfg.games.some((g) => g === 'flags' || g === 'flagmap' || g === 'duel')) preloadFlags(cfgPool(cfg));
     if (cfg.games.some((g) => MAP_GAMES.has(g))) loadMap().catch(() => toast('The map didn\'t load. Check your connection.'));
   } else {
     S.session.questions = makeRun(cfg);
@@ -1123,12 +1178,21 @@ function spellingHelp(input, el, kindOf, currentId, onRight, matcher) {
    Small countries, Seterra style: a little white dot where a country is too small to see, a dashed box round a
    spread-out island group, and (on the world map, on a big enough screen) magnified Caribbean and Pacific boxes.
    A tap on the sea just next to a dot or box counts for it. */
+// The map view for a run: its region's view; for several continents, the box round all of them on the world
+// map (the whole world if Oceania is one of them — it's split across the world map's edges).
+function mapView(M, cfg) {
+  const rs = cfg.regions;
+  if (!rs || !rs.length) return M.views[cfg.region];
+  if (rs.includes('Oceania')) return M.views.world;
+  const union = (key) => { const bs = rs.map((r) => M.views[r][key] || M.views[r].box); const x0 = Math.min(...bs.map((b) => b[0])), y0 = Math.min(...bs.map((b) => b[1])); return [x0, y0, Math.max(...bs.map((b) => b[0] + b[2])) - x0, Math.max(...bs.map((b) => b[1] + b[3])) - y0]; };
+  return { map: 'world', box: union('box'), tight: union('tight') };
+}
 function mapGame(api) {
   const { sec, res } = api;
   // Three ways to play the map: 'map' (tap the named country), 'flagmap' (tap the country of the flag shown),
   // 'mapname' (a country lights up in gold; type its name).
   const mode = sec.game, naming = mode === 'mapname';
-  const M = window.GS_MAP, view = M.views[S.session.cfg.region], m = M[view.map];
+  const M = window.GS_MAP, view = mapView(M, S.session.cfg), m = M[view.map];
   const ids = sec.ids, playable = new Set(ids);
   const queue = ids.slice();
   const tries = res.tries;
