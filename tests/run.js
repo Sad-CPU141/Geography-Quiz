@@ -105,9 +105,9 @@ ok(GS.duelWinner('ru|ca') === 'ru' && GS.duelWinner('mc|va') === 'mc', 'duel win
 // Guess the language: 20 rounds of the region's official languages, 4 different options, fair wrong options.
 const LB = GS.LANG_BY;
 ok(GS.LANGS.length > 100 && ['ara', 'zho', 'eng', 'spa', 'hin', 'rus', 'jpn', 'swa', 'fra', 'por'].every((k) => LB[k]), 'languages: the big ones are there');
-ok(GS.LANGS.every((l) => [l.text, ...l.more].every((t) => t.length > 15 && t.length < 200 && !/[\[\]<>]|&\w+;/.test(t))), 'language sentences are clean and short');
+ok(GS.LANGS.every((l) => l.texts.every((t) => t.length > 15 && t.length < 200 && !/[\[\]<>]|&\w+;/.test(t))), 'language sentences are clean and short');
 ok(LB.ara.dir === 'rtl' && LB.urd.dir === 'rtl' && LB.div.script === 'Thaana' && LB.eng.dir === 'ltr', 'right-to-left and scripts');
-ok(LB.tha.text.includes('เกียรติศักดิ์'), 'Thai editorial correction applied');
+ok(LB.tha.texts[0].includes('เกียรติศักดิ์'), 'Thai editorial correction applied');
 ['world', 'Europe', 'Africa', 'Asia', 'North America', 'South America', 'Oceania'].forEach((reg) => {
   for (let s = 1; s < 30; s++) {
     const sec = GS.makeBoard({ kind: 'board', games: ['lang'], region: reg, seed: s * 131 })[0];
@@ -120,9 +120,12 @@ ok(LB.tha.text.includes('เกียรติศักดิ์'), 'Thai editor
 const lw = GS.makeBoard({ kind: 'board', games: ['lang'], region: 'world', seed: 5 })[0];
 ok(lw.ids.length === 20, 'lang: 20 rounds on the world');
 const na = GS.makeBoard({ kind: 'board', games: ['lang'], region: 'North America', seed: 3 })[0];
-ok(na.ids.length === 10 && ['eng', 'fra', 'spa', 'hat'].every((k) => na.ids.includes(k)), 'lang: North America (4 languages) gets 10 rounds, every language at least once');
+ok(na.ids.length === 10 && ['eng', 'fra', 'spa', 'hat'].every((k) => na.ids.some((id) => GS.langOf(id).k === k)) && new Set(na.ids).size === 10, 'lang: North America (4 languages) gets 10 rounds, every language at least once');
 ok(new Set(GS.makeBoard({ kind: 'board', games: ['lang'], region: 'North America', seed: 8 })[0].ids.map((id) => [...GS.makeBoard({ kind: 'board', games: ['lang'], region: 'North America', seed: 8 })[0].opts[id]].sort().join())).size > 1, 'lang: options vary in a small region');
-ok(lw.ids.filter((k) => LB[k].script !== 'Latin').every((k) => lw.opts[k].every((o) => LB[o].script !== 'Latin')) && lw.ids.every((k) => !k.includes('~')), 'lang: non-Latin sentences get non-Latin options');
+ok(lw.ids.filter((id) => GS.langOf(id).script !== 'Latin').every((id) => lw.opts[id].every((o) => LB[o].script !== 'Latin')) && new Set(lw.ids.map((id) => GS.langOf(id).k)).size === 20, 'lang: non-Latin sentences get non-Latin options; 20 different languages');
+ok(GS.LANGS.every((l) => l.texts.length >= 8), 'every language has at least 8 different sentences');
+const seenS = new Set(); for (let sd = 1; sd <= 40; sd++) GS.makeBoard({ kind: 'board', games: ['lang'], region: 'Europe', seed: sd })[0].ids.filter((id) => id.startsWith('fra~')).forEach((id) => seenS.add(GS.langText(id)));
+ok(seenS.size >= 5, 'lang: French shows up with different sentences across runs (' + seenS.size + ')');
 ok(JSON.stringify(GS.makeBoard({ kind: 'board', games: ['lang'], region: 'Asia', seed: 9 })) === JSON.stringify(GS.makeBoard({ kind: 'board', games: ['lang'], region: 'Asia', seed: 9 })), 'lang: same seed, same run');
 const lc = { kind: 'board', games: ['lang', 'flags'], region: 'Africa', seed: 4242 };
 ok(JSON.stringify(GS.decodeCode(GS.encodeCode(lc))) === JSON.stringify(lc), 'lang: challenge code round trip');

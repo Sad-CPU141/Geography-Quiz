@@ -204,6 +204,7 @@ function liveLobby(code) {
     LIVE.room = room;
     const host = room.host === NET.uid();
     what.textContent = cfgLabel(room.cfg);
+    if (usesLangs(room.cfg)) needLangs().catch(() => {}); // fetch the sentences while waiting
     const ps = Object.entries(room.players || {}).filter(([, p]) => !p.gone);
     list.replaceChildren(...ps.map(([id, p]) => h('li', null, h('span', { class: 'rank' }, id === room.host ? '★' : '•'), h('div', { class: 'q' }, p.name + (id === NET.uid() ? ' (you)' : '')))));
     startBtn.hidden = !host; wait.hidden = host;
@@ -229,6 +230,10 @@ async function liveStartRound(next) {
 // Everyone: the countdown runs to the shared start time, then the same run starts on every phone.
 function liveBegin(room) {
   LIVE.startedRound = room.round;
+  if (usesLangs(room.cfg) && !langsReady()) { needLangs().then(() => liveBegin2(room), () => toast('Couldn\'t load the languages')); return; }
+  liveBegin2(room);
+}
+function liveBegin2(room) {
   const code = LIVE.code;
   startSession(room.cfg, [myName()], null, null, false);
   S.session.live = { code, round: room.round };

@@ -3,7 +3,7 @@
 // the Universal Declaration of Human Rights in the `udhr` package (Unicode's UDHR project; the declaration is
 // copyright-free). The sentence shown is Article 1 (its first sentence when it's long) — a real, official
 // translation, never one we wrote ourselves.
-// Output: src/langs.js → window.GS_LANGS = [{ k, name, dir, script, text, more: [2 more sentences], countries: [ids], close? }]
+// Output: src/langs.js → window.GS_LANGS = [{ k, name, alt, dir, script, texts: [up to 12 sentences], countries: [ids], close? }]
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -87,11 +87,14 @@ for (const [k, v] of Object.entries(langs)) {
   const code = FILE[k] || k;
   if (!fs.existsSync(path.join(decl, code + '.html')) || stageOf[code] < 4) { missing.push(k + ' ' + v.name); continue; }
   const text = article(code, 1);
-  // Two more short sentences (Articles 3–6), used when a region has only a few languages.
-  const more = [3, 4, 5, 6].map((n) => article(code, n)).filter((t) => t && t.length <= 170 && !t.endsWith('…')).slice(0, 2);
+  // Many different sentences per language (the first sentence of each article, short ones only), so a language
+  // isn't always the same sentence: each round picks one at random. Article 1 first.
+  const others = [];
+  for (let n = 2; n <= 30; n++) { const t = article(code, n); if (t && t.length >= 25 && t.length <= 170 && !t.endsWith('…')) others.push(t); }
+  const texts = [...new Set([text].concat(others))].filter(Boolean).slice(0, 12);
   if (!text) { missing.push(k + ' (no article 1)'); continue; }
   const alt = [...new Set([...(ALT[k] || []), v.name])].filter((a) => a !== (NAME[k] || v.name));
-  out.push({ k, name: NAME[k] || v.name, alt, dir: dirOf[code] === 'rtl' ? 'rtl' : 'ltr', script: scriptOf(text), text, more, countries: v.countries.sort() });
+  out.push({ k, name: NAME[k] || v.name, alt, dir: dirOf[code] === 'rtl' ? 'rtl' : 'ltr', script: scriptOf(text), texts, countries: v.countries.sort() });
 }
 out.sort((a, b) => a.name.localeCompare(b.name));
 // Languages so close in writing that they'd be unfair as wrong options for each other.

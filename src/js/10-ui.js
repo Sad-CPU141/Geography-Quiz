@@ -145,6 +145,7 @@ function dailyCard() {
 function dailyResult(day) {
   const cfg = dailyCfg(day), mine = store.get('gs_daily_v1', {})[day];
   if (!mine) { home(); return; }
+  if (mine.sections && mine.sections.some((x) => x.game === 'lang') && !langsReady()) { needLangs().then(() => dailyResult(day), () => home()); return; }
   const done = mine.time != null;
   mount(h('div', { class: 'app', 'data-screen': 'daily' }, topbar('📅 Daily · ' + dayLabel(day), home),
     h('p', { class: 'center muted' }, regionOf(cfg.region).label + ': ' + cfg.games.map((g) => gameOf(g).em + ' ' + gameOf(g).label).join(' → ')),

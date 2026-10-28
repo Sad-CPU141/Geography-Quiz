@@ -396,7 +396,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await page.click('.reveal-bar button');
     await page.waitForSelector('.lang-type input');
     // Typed: the right name is taken the moment it's typed; Enter on a wrong one shakes; Pass shows the answer.
-    const ans = await page.evaluate(() => { const q = document.querySelector('.lang-text').textContent; const l = window.GS.LANGS.find((x) => [x.text, ...x.more].includes(q)); return l.name.replace(/\s*\(.*\)/, ''); });
+    const ans = await page.evaluate(() => { const q = document.querySelector('.lang-text').textContent; const l = window.GS.LANGS.find((x) => x.texts.includes(q)); return l.name.replace(/\s*\(.*\)/, ''); });
     await page.keyboard.type('Klingon'); await page.keyboard.press('Enter');
     ok(await page.$('.lang-type input.shake') !== null, 'typed: Enter on a wrong name shakes');
     await page.fill('.lang-type input', '');
@@ -433,7 +433,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
       if (!(await page.$('.lang-pick'))) break;
       const [right, wrong, dir, want] = await page.evaluate(() => {
         const q = document.querySelector('.lang-text'), ids = [...document.querySelectorAll('.lang-pick')].map((b) => b.dataset.id);
-        const r = ids.find((k) => [window.GS.LANG_BY[k].text, ...window.GS.LANG_BY[k].more].includes(q.textContent));
+        const r = ids.find((k) => window.GS.LANG_BY[k].texts.includes(q.textContent));
         return [r, ids.find((k) => k !== r), q.getAttribute('dir'), r && window.GS.LANG_BY[r].dir];
       });
       ok(right && dir === want, 'lang: sentence matches one option, direction ' + right + ' ' + dir);
@@ -455,8 +455,8 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
       const out = [];
       for (const l of window.GS.LANGS) {
         if (!['Thaana', 'Tifinagh', 'Tibetan', 'Ethiopic', 'Myanmar', 'Khmer', 'Thai/Lao', 'Georgian', 'Armenian'].includes(l.script)) continue;
-        await document.fonts.load("400 24px 'GS Scripts'", l.text);
-        if (l.k !== 'tha' && !document.fonts.check("400 24px 'GS Scripts'", l.text)) out.push(l.k);
+        await document.fonts.load("400 24px 'GS Scripts'", l.texts.join(' '));
+        if (l.k !== 'tha' && !document.fonts.check("400 24px 'GS Scripts'", l.texts.join(' '))) out.push(l.k);
       }
       return out;
     });
@@ -465,7 +465,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
       // A sample of every rare script on screen, for a look.
       await page.evaluate(() => {
         const box = document.createElement('div'); box.className = 'app'; box.style.cssText = 'display:flex;flex-direction:column;gap:6px';
-        ['ber', 'div', 'dzo', 'amh', 'mya', 'khm', 'lao', 'sin', 'kat', 'hye', 'zho', 'jpn', 'ara'].forEach((k) => { const q = document.createElement('blockquote'); q.className = 'lang-small'; q.dir = window.GS.LANG_BY[k].dir; q.textContent = k + ': ' + window.GS.LANG_BY[k].text; box.append(q); });
+        ['ber', 'div', 'dzo', 'amh', 'mya', 'khm', 'lao', 'sin', 'kat', 'hye', 'zho', 'jpn', 'ara'].forEach((k) => { const q = document.createElement('blockquote'); q.className = 'lang-small'; q.dir = window.GS.LANG_BY[k].dir; q.textContent = k + ': ' + window.GS.LANG_BY[k].texts[0]; box.append(q); });
         document.body.replaceChildren(box);
       });
       await page.waitForTimeout(500);
@@ -474,6 +474,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
       await page.goto(BASE);
       await setupBoard(page, ['Guess the language'], 'N. America');
       await page.click('button:has-text("Start")');
+      await page.waitForFunction(() => /Guess the language/.test((document.querySelector('.cover') || {}).textContent || ''), null, { timeout: 5000 }).catch(() => {});
       ok(/Guess the language 10/.test(await page.textContent('.cover')), 'lang: North America has 10 rounds');
     }
     ok(errors.length === 0, 'lang ' + W + ': no page errors ' + JSON.stringify(errors));

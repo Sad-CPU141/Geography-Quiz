@@ -1,10 +1,15 @@
 /* ---- core: data, answer matching, runs, challenge codes (no DOM; tested by tests/run.js) ---- */
 const DATA = window.GS_DATA.countries;
 const BY_ID = Object.fromEntries(DATA.map((c) => [c.id, c]));
-// Guess the language data (src/langs.js, from tools/langs.mjs).
-const LANGS = window.GS_LANGS || [];
-const LANG_BY = Object.fromEntries(LANGS.map((l) => [l.k, l]));
-// A round is a language key ("ara") or, for its extra sentences, "ara~1" / "ara~2".
+// Guess the language data (src/langs.js, from tools/langs.mjs). It's big (~12 sentences × 116 languages), so the
+// page loads it only when a run needs it (needLangs in 20-session); langsReady() picks it up once it's there.
+let LANGS = [], LANG_BY = {};
+function langsReady() {
+  if (!LANGS.length && window.GS_LANGS) { LANGS = window.GS_LANGS; LANG_BY = Object.fromEntries(LANGS.map((l) => [l.k, l])); }
+  return LANGS.length > 0;
+}
+langsReady();
+const usesLangs = (cfg) => !!(cfg && cfg.kind === 'board' && cfg.games.includes('lang'));
 const langOf = (id) => LANG_BY[id.split('~')[0]];
 // Typed answers for a language: its name, the parts of "Chinese (Mandarin)", and other names people use.
 function langAnswer(k, typed) {
@@ -13,7 +18,8 @@ function langAnswer(k, typed) {
   const names = [l.name, l.name.replace(/\s*\(.*\)/, ''), ...((/\((.*)\)/.exec(l.name) || [])[1] ? [/\((.*)\)/.exec(l.name)[1]] : []), ...(l.alt || [])];
   return names.some((n) => norm(n) === t);
 }
-const langText = (id) => { const [k, n] = id.split('~'); return n ? LANG_BY[k].more[n - 1] : LANG_BY[k].text; };
+// A round id is "ara~3": the language and which of its sentences (a random one each round).
+const langText = (id) => { const [k, n] = id.split('~'); return LANG_BY[k].texts[+n || 0]; };
 
 /* Two kinds of run:
    · board: the JetPunk / Seterra style. One or more games played back to back on one clock:
@@ -137,8 +143,9 @@ function makeBoard(cfg) {
       const here = new Set(cfgPool(cfg, i));
       // A region with under 10 languages (the Americas) also gets their other sentences, up to 10 rounds.
       const langs = LANGS.filter((l) => l.countries.some((c) => here.has(c)));
-      let ids = shuffle(langs.map((l) => l.k), r).slice(0, 20);
-      if (ids.length < 10) ids = ids.concat(shuffle(langs.flatMap((l) => l.more.map((t, n) => l.k + '~' + (n + 1))), r).slice(0, 10 - ids.length));
+      // Each language once, with one of its sentences picked at random (so you can't learn "this sentence = X").
+      let ids = shuffle(langs.map((l) => l.k), r).slice(0, 20).map((k) => k + '~' + Math.floor(r() * LANG_BY[k].texts.length));
+      if (ids.length < 10) ids = ids.concat(shuffle(langs.flatMap((l) => l.texts.map((t, n) => l.k + '~' + n)).filter((id) => !ids.includes(id)), r).slice(0, 10 - ids.length));
       sec.ids = shuffle(ids, r);
       sec.opts = {};
       sec.ids.forEach((id) => { sec.opts[id] = langOptions(id.split('~')[0], here, r); });
@@ -417,5 +424,7 @@ function dailyCfg(day) {
 }
 const dayLabel = (day) => new Date(day * 86400000).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
 
-window.GS = { withWhere, cfgPool, whereLabel, CONTINENTS, withOpts, langAnswer, LANGS, LANG_BY, langOf, langText, recordMisses, topMisses, todayNum, dailyCfg, duelWinner, GAMES, suggest, editDistance, norm, isRight, answersFor, makeRun, makeBoard, encodeCode, decodeCode, fmtTime, pool, rng, better, compare, GAME_ORDERS, cfgLabel, DATA };
+window.GS = { withWhere, cfgPool, whereLabel, CONTINENTS, withOpts, langAnswer, langsReady, langOf, langText, recordMisses, topMisses, todayNum, dailyCfg, duelWinner, GAMES, suggest, editDistance, norm, isRight, answersFor, makeRun, makeBoard, encodeCode, decodeCode, fmtTime, pool, rng, better, compare, GAME_ORDERS, cfgLabel, DATA };
+Object.defineProperty(window.GS, 'LANGS', { get: () => (langsReady(), LANGS) });
+Object.defineProperty(window.GS, 'LANG_BY', { get: () => (langsReady(), LANG_BY) });
 if (window.GS_NO_UI) return;

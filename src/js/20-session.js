@@ -5,6 +5,17 @@ function preloadFlags(ids) {
 }
 // The map data is a separate file, loaded only when a run has the Map game.
 let mapLoading = null;
+// Guess the language's sentences: loaded the first time a run needs them.
+let langsLoading = null;
+function needLangs() {
+  if (langsReady()) return Promise.resolve();
+  if (!langsLoading) langsLoading = new Promise((res, rej) => {
+    const s = document.createElement('script'); s.src = 'langs.js?v=' + APP_VERSION;
+    s.onload = () => { langsReady(); res(); }; s.onerror = () => { langsLoading = null; rej(new Error('langs')); };
+    document.head.appendChild(s);
+  });
+  return langsLoading;
+}
 function loadMap() {
   if (window.GS_MAP) return Promise.resolve(window.GS_MAP);
   if (!mapLoading) mapLoading = new Promise((res, rej) => {
@@ -16,6 +27,11 @@ function loadMap() {
 }
 
 function startSession(cfg, players, challenge, daily, practice) {
+  if (usesLangs(cfg) && !langsReady()) {
+    mount(h('div', { class: 'app' }, h('div', { class: 'cover' }, h('p', { class: 'muted' }, 'Loading…'))));
+    needLangs().then(() => startSession(cfg, players, challenge, daily, practice), () => { toast('Couldn\'t load the languages. Check your connection.'); home(); });
+    return;
+  }
   // One go at the daily run per day on this device.
   if (daily != null && store.get('gs_daily_v1', {})[daily]) { dailyResult(daily); return; }
   S.challenge = null;
