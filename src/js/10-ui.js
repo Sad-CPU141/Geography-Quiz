@@ -255,18 +255,20 @@ function setup() {
     whereCard(),
     st.kind === 'quick' ? quickCards() : null,
     h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Options'),
-      st.kind === 'board' || st.style === 'type' ? optRow('💡 Spelling help', !!st.help, set('help')) : null,
+      (st.kind === 'board' || st.style === 'type') && !(st.kind === 'board' && st.strict) ? optRow('💡 Spelling help', !!st.help, set('help')) : null,
       st.kind === 'board' && st.group !== 'live' ? optRow('🧘 Practice (no clock)', !!st.practice, set('practice')) : null,
       st.kind === 'board' && st.games.some((g) => MAP_GAMES.has(g)) ? optRow('🧱 Map: no borders', !!st.hard, set('hard')) : null,
-      st.kind === 'board' && st.games.includes('lang') ? optRow('⌨️ Languages: type it', !!st.langType, set('langType')) : null),
+      st.kind === 'board' && st.games.includes('lang') ? optRow('⌨️ Languages: type it', !!st.langType, set('langType')) : null,
+      st.kind === 'board' && (st.games.some((g) => ['flags', 'shapes', 'capitals', 'revcap', 'mapname', 'borders'].includes(g)) || (st.games.includes('lang') && st.langType)) ? optRow('🎯 One shot (Enter to answer)', !!st.strict, set('strict')) : null,
+      st.kind === 'board' && st.group === 'live' ? optRow('👀 See what game others are on', st.peek !== false, set('peek')) : null),
     S.liveNext ? null : h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Who is playing'),
       seg([{ id: false, label: 'Just me', em: '🙋' }, { id: true, label: 'Pass the phone', em: '👥' }].concat(st.kind === 'board' ? [{ id: 'live', label: 'Online', em: '🌐' }] : []), st.kind === 'quick' && st.group === 'live' ? false : st.group, set('group'), st.kind === 'board' ? 3 : 2),
       st.group === true ? [
         h('div', { class: 'chips' }, S.players.map((p, i) => h('span', { class: 'chip' }, p, h('button', { 'aria-label': 'Remove ' + p, onclick: () => { S.players.splice(i, 1); store.set('gs_players_v1', S.players); setup(); } }, '✕')))),
         h('div', { class: 'row' }, nameInput = h('input', { id: 'pname', class: 'input', placeholder: 'Add a player', maxlength: 24, onkeydown: (e) => { if (e.key === 'Enter') addPlayer(); } }), h('button', { class: 'btn ghost small', style: { flex: '0 0 auto', width: 'auto' }, onclick: addPlayer }, '+ Add')),
       ] : nameField()),
-    S.liveNext ? h('button', { class: 'btn primary', disabled: noWhere, onclick: () => liveStartRound(Object.assign(cfgNow(), { help: !!st.help })) }, '▶ Start round ' + ((LIVE.room && LIVE.room.round || 0) + 1)) :
-    st.group === 'live' && st.kind === 'board' ? h('button', { class: 'btn primary', disabled: noWhere, onclick: () => liveCreate(Object.assign(cfgNow(), { help: !!st.help })) }, '🌐 Create room') :
+    S.liveNext ? h('button', { class: 'btn primary', disabled: noWhere, onclick: () => liveStartRound(liveCfg(cfgNow(), st)) }, '▶ Start round ' + ((LIVE.room && LIVE.room.round || 0) + 1)) :
+    st.group === 'live' && st.kind === 'board' ? h('button', { class: 'btn primary', disabled: noWhere, onclick: () => liveCreate(liveCfg(cfgNow(), st)) }, '🌐 Create room') :
     h('button', {
       class: 'btn primary', disabled: noWhere || (st.group === true && S.players.length < 2),
       onclick: () => startSession(cfgNow(), st.group === true ? S.players.slice() : [S.myName || 'You'], null),

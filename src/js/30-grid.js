@@ -86,12 +86,15 @@ function gridGame(api) {
     select(n, true);
   }
   // Right answer → accepted the moment it's typed. Enter on a wrong answer just shakes (it never skips).
+  // One shot (cfg.strict): nothing happens while typing; Enter answers — right counts, wrong shows the answer
+  // in red (missed) and moves on. No spelling help.
+  const strict = !!S.session.cfg.strict;
   input.addEventListener('input', () => {
-    if (revealed) return;
+    if (revealed || strict) return;
     if (isRight(ids[active], kind, input.value)) accept(); else help.update();
   });
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); if (!revealed) help.enter(); }
+    if (e.key === 'Enter') { e.preventDefault(); if (revealed) return; if (strict) { if (!input.value.trim()) return; if (isRight(ids[active], kind, input.value)) accept(); else { shake(input); showAnswer(); } } else help.enter(); }
     else if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) { e.preventDefault(); step(1); }
     else if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) { e.preventDefault(); step(-1); }
   });

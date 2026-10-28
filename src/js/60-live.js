@@ -277,8 +277,14 @@ function liveFinished(score) {
 // Standings, best first: finished players by score then time, then everyone else by how many they've found.
 function liveStandings(room) {
   const total = cfgTotal(room.cfg);
-  return Object.entries(room.players || {}).filter(([, p]) => !p.gone || p.done).map(([id, p]) => ({ id, name: p.name, found: p.found || 0, done: !!p.done, time: p.time, correct: p.correct, total }))
+  return Object.entries(room.players || {}).filter(([, p]) => !p.gone || p.done).map(([id, p]) => ({ id, name: p.name, found: p.found || 0, sec: p.sec || 0, done: !!p.done, time: p.time, correct: p.correct, total }))
     .sort((a, b) => (b.done && a.done) ? (b.correct - a.correct || a.time - b.time) : (b.found - a.found || (b.done ? 1 : 0) - (a.done ? 1 : 0)));
+}
+// Which game a friend who's still playing is on ("🏛️ Capitals"), or just "playing…" when the host hid it.
+function livePeek(room, p) {
+  if (room.cfg.noPeek) return 'playing…';
+  const g = room.cfg.games[Math.min(p.sec || 0, room.cfg.games.length - 1)];
+  return gameOf(g).em + ' ' + gameOf(g).label;
 }
 // The little bar of standings at the bottom of the screen during a race.
 function liveBar() {
@@ -287,9 +293,12 @@ function liveBar() {
   document.body.appendChild(bar);
   const draw = (room) => {
     if (!room || !S.session || !S.session.live) return bar.remove();
-    const st = liveStandings(room), total = cfgTotal(room.cfg);
-    bar.replaceChildren(...st.slice(0, 5).map((p, i) => h('span', { class: 'lb' + (p.id === NET.uid() ? ' me' : '') + (p.done ? ' done' : '') },
-      h('b', null, (i + 1) + '. ' + p.name), ' ' + (p.done ? '✓ ' + p.correct : p.found) + '/' + total)));
+    // You see your own progress; a friend's score only once they've finished. Until then, just which game
+    // they're on (unless the host turned that off).
+    const total = cfgTotal(room.cfg), me = NET.uid(), all = liveStandings(room);
+    const st = all.filter((p) => p.done).concat(all.filter((p) => !p.done && p.id === me), all.filter((p) => !p.done && p.id !== me).sort((a, b) => a.name.localeCompare(b.name)));
+    bar.replaceChildren(...st.slice(0, 5).map((p, i) => h('span', { class: 'lb' + (p.id === me ? ' me' : '') + (p.done ? ' done' : '') },
+      h('b', null, (p.done ? (i + 1) + '. ' : '') + p.name), ' ' + (p.done ? '✓ ' + p.correct + '/' + total : p.id === me ? p.found + '/' + total : livePeek(room, p)))));
   };
   if (LIVE.room) draw(LIVE.room);
   const prev = LIVE.unwatch;
@@ -322,11 +331,18 @@ function h2hCard(ids) {
   return h('div', { class: 'h2h' }, h('p', { class: 'eyebrow' }, '⚔️ Head to head'),
     h('ul', { class: 'pairs' }, rows.map(([, r]) => h('li', null, h('span', null, 'You vs ' + r.name), h('b', { class: 'num ' + (r.w > r.l ? 'up' : r.w < r.l ? 'down' : '') }, r.w + ' – ' + r.l + (r.t ? ' · ' + r.t + 'T' : ''))))));
 }
+// A room's run: the host's spelling help and "see what game others are on" are for everyone. (Firebase can't
+// store undefined, so options are only added when they're on.)
+function liveCfg(cfg, st) {
+  if (st.help && !cfg.strict) cfg.help = true;
+  if (st.peek === false) cfg.noPeek = true;
+  return cfg;
+}
 // Host, "Another round": back to the game list to change anything, then Start round (setup's button).
 function liveNextRound() {
   NET.update('rooms/' + LIVE.code, { picking: true }).catch(() => {});
   if (LIVE.room && LIVE.room.cfg) {
-    const c = LIVE.room.cfg; Object.assign(S.setup, { kind: 'board', games: c.games.slice(), help: !!c.help, hard: !!c.hard, langType: !!c.langType });
+    const c = LIVE.room.cfg; Object.assign(S.setup, { kind: 'board', games: c.games.slice(), help: !!c.help, hard: !!c.hard, langType: !!c.langType, strict: !!c.strict, peek: !c.noPeek });
     if (c.regions) Object.assign(S.setup, { multi: true, regions: c.regions.slice() });
     else Object.assign(S.setup, { multi: false, region: c.limit ? 'mixed' : c.region }, c.limit ? { mixN: c.limit } : {});
   }
@@ -348,7 +364,7 @@ function liveResults() {
     const st = all.filter((p) => p.done).concat(all.filter((p) => !p.done).sort((a, b) => a.name.localeCompare(b.name)));
     box.replaceChildren(h('p', { class: 'eyebrow' }, '🌐 Room ' + LIVE.code + (waiting ? ' · ' + waiting + ' still playing' : '')),
       h('ul', { class: 'list board' }, st.map((p, i) => h('li', { class: i === 0 && p.done ? 'first' : null }, h('span', { class: 'rank' }, p.done ? String(i + 1) : '–'),
-        h('div', { class: 'q' }, p.name + (p.id === NET.uid() ? ' (you)' : ''), h('small', null, p.done ? p.correct + '/' + p.total + ' found' : 'still playing…')),
+        h('div', { class: 'q' }, p.name + (p.id === NET.uid() ? ' (you)' : ''), h('small', null, p.done ? p.correct + '/' + p.total + ' found' : 'still playing' + (room.cfg.noPeek ? '…' : ' · ' + livePeek(room, p)))),
         h('div', { class: 't' }, p.done ? fmtTime(p.time) : '…')))),
       ...[(h2hRecord(room), h2hCard(st.map((p) => p.id)))].filter(Boolean),
       host ? h('button', { class: 'btn primary small', onclick: liveNextRound }, '🔁 Another round')

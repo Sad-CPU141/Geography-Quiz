@@ -66,8 +66,10 @@ function bordersGame(api) {
     }, 1400);
   }
   function skip() { if (revealed || ended || queue.length < 2) return; queue.push(queue.shift()); input.value = ''; help.clear(); draw(); input.focus({ preventScroll: true }); }
-  input.addEventListener('input', () => { if (revealed || ended) return; if (match(input.value)) accept(); else help.update(); });
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (!revealed && !ended) { if (match(input.value)) accept(); else help.enter(); } } });
+  // One shot (cfg.strict): Enter answers; a wrong neighbour ends this country (the rest count as missed).
+  const strict = !!S.session.cfg.strict;
+  input.addEventListener('input', () => { if (revealed || ended || strict) return; if (match(input.value)) accept(); else help.update(); });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (!revealed && !ended) { if (match(input.value)) accept(); else if (strict) { if (input.value.trim() && !showing) { shake(input); showAnswer(); } } else help.enter(); } } });
   count(); draw(); input.focus({ preventScroll: true });
   return {
     completed() { head.classList.add('all-done'); },
@@ -155,9 +157,16 @@ function langGame(api) {
   const typed = !!S.session.cfg.langType;
   const input = typed ? h('input', { class: 'input', type: 'text', autocomplete: 'off', autocorrect: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'go', placeholder: 'Type the language…', 'aria-label': 'The language' }) : null;
   const verdict = h('p', { class: 'lang-verdict center' });
+  const strict = !!S.session.cfg.strict; // one shot: Enter answers, a wrong one is missed
   if (typed) {
-    input.addEventListener('input', () => { if (!busy && i < sec.ids.length && langAnswer(langOf(sec.ids[i]).k, input.value)) pick(langOf(sec.ids[i]).k); });
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (!busy && input.value.trim()) shake(input); } });
+    input.addEventListener('input', () => { if (!strict && !busy && i < sec.ids.length && langAnswer(langOf(sec.ids[i]).k, input.value)) pick(langOf(sec.ids[i]).k); });
+    input.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      if (busy || i >= sec.ids.length || !input.value.trim()) return;
+      const k = langOf(sec.ids[i]).k;
+      if (langAnswer(k, input.value)) pick(k); else if (strict) { shake(input); pick('~wrong'); } else shake(input);
+    });
   }
   function count() { foundEl.textContent = res.found.length + ' / ' + sec.ids.length + ' right · round ' + Math.min(i + 1, sec.ids.length); }
   function draw() {

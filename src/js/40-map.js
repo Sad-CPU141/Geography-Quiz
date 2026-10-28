@@ -226,7 +226,7 @@ function mapGame(api) {
     const cur = queue[0];
     if (naming) {
       setState(cur, 'miss'); missedN++;
-      const r = els[cur][0].getBoundingClientRect(); tapName(r.left + r.width / 2, r.top + r.height / 2, BY_ID[cur].name, false);
+      const w = wrap.getBoundingClientRect(); tapName(w.left + w.width / 2, w.top + 64, BY_ID[cur].name, false);
       hint.textContent = 'That was ' + BY_ID[cur].name;
       queue.shift(); count(); ask(); return;
     }
@@ -311,8 +311,10 @@ function mapGame(api) {
     const w = wrap.getBoundingClientRect(); tapName(w.left + w.width / 2, w.top + 64, BY_ID[cur].name, true);
     queue.shift(); count(); ask();
   }
-  nameInput.addEventListener('input', () => { if (!naming || ended || revealed) return; if (isRight(queue[0], 'country', nameInput.value)) named(); else help.update(); });
-  nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (!ended && !revealed) { if (isRight(queue[0], 'country', nameInput.value)) named(); else help.enter(); } } });
+  // One shot (cfg.strict): Enter answers; a wrong name is missed (the answer shows) and the next one comes.
+  const strict = !!S.session.cfg.strict;
+  nameInput.addEventListener('input', () => { if (!naming || ended || revealed || strict) return; if (isRight(queue[0], 'country', nameInput.value)) named(); else help.update(); });
+  nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (!ended && !revealed) { if (isRight(queue[0], 'country', nameInput.value)) named(); else if (strict) { if (nameInput.value.trim()) { shake(nameInput); showAnswer(); } } else help.enter(); } } });
   /* Map: name it — each new gold country: a smooth flight to it (zoom out a little, travel, zoom in), ending
      with it centred and small enough that you can see its neighbours. Speed 1–10 from the slider (10 = instant). */
   const ANIM_MS = [1800, 1500, 1250, 1050, 850, 700, 550, 400, 250, 0];

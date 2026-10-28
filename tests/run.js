@@ -136,6 +136,9 @@ ok(/\+NT$/.test(code1) && JSON.stringify(GS.decodeCode(code1)) === JSON.stringif
 ok(!GS.withOpts({ kind: 'board', games: ['flags'], region: 'Asia', seed: 1 }, { hard: true, langType: true }).hard, 'no borders only with a map game');
 ok(!('hard' in GS.decodeCode(GS.encodeCode({ kind: 'board', games: ['flags'], region: 'Asia', seed: 1 }))), 'plain codes have no options');
 ok(GS.decodeCode(code1.replace('+NT', '')).hard === undefined, 'code without +N plays with borders');
+const oc2 = GS.withOpts({ kind: 'board', games: ['capitals'], region: 'Asia', seed: 5 }, { strict: true });
+ok(GS.encodeCode(oc2).endsWith('+E') && GS.decodeCode(GS.encodeCode(oc2)).strict === true, 'one shot in the code');
+ok(!GS.withOpts({ kind: 'board', games: ['map', 'duel'], region: 'Asia', seed: 5 }, { strict: true }).strict, 'one shot only with a typing game');
 // Typed language answers.
 ok(GS.langAnswer('fas', 'Farsi') && GS.langAnswer('fas', 'persian') && GS.langAnswer('zho', 'Mandarin') && GS.langAnswer('zho', 'chinese') && GS.langAnswer('mri', 'Maori') && !GS.langAnswer('fas', 'Arabic') && !GS.langAnswer('eng', ''), 'typed language names and other names');
 ok(GS.LANGS.every((l) => GS.langAnswer(l.k, l.name)), 'every language accepts its own name');

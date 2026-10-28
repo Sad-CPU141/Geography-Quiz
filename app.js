@@ -1,7 +1,7 @@
-/* Geography Speedrun b6ee4e45ec — built from src/js/ by build.js. Edit src/, not this file. */
+/* Geography Speedrun b5e19eac4d — built from src/js/ by build.js. Edit src/, not this file. */
 (function () {
 'use strict';
-const APP_VERSION = "b6ee4e45ec";
+const APP_VERSION = "b5e19eac4d";
 /* ---- core: data, answer matching, runs, challenge codes (no DOM; tested by tests/run.js) ---- */
 const DATA = window.GS_DATA.countries;
 const BY_ID = Object.fromEntries(DATA.map((c) => [c.id, c]));
@@ -242,15 +242,19 @@ function decodeLong(t) {
 }
 // Run options that change how a game plays (part of the code, after a "+": N = map with no borders,
 // T = type the language instead of picking it). Only kept when the run has a game they apply to.
+// One shot (cfg.strict, E in codes): answers only go in with Enter, and a wrong one is missed — for games you type in.
+const TYPING_GAMES = ['flags', 'shapes', 'capitals', 'revcap', 'mapname', 'borders'];
+const hasTypingGame = (cfg) => cfg.kind === 'board' && (cfg.games.some((g) => TYPING_GAMES.includes(g)) || (cfg.games.includes('lang') && !!cfg.langType));
 const hasMapGame = (cfg) => cfg.kind === 'board' && cfg.games.some((g) => MAP_GAMES.has(g));
 function withOpts(cfg, o) {
   if (o && o.hard && hasMapGame(cfg)) cfg.hard = true; else delete cfg.hard;
   if (o && o.langType && cfg.kind === 'board' && cfg.games.includes('lang')) cfg.langType = true; else delete cfg.langType;
+  if (o && o.strict && hasTypingGame(cfg)) cfg.strict = true; else delete cfg.strict;
   return cfg;
 }
 // Where (after the "+" too): R<mask> = several continents (bit i = CONTINENTS[i]), C<n> = n random countries.
 const regionMask = (cfg) => (cfg.regions || []).reduce((m, r) => m | (1 << CONTINENTS.indexOf(r)), 0);
-const optLetters = (cfg) => (cfg.hard ? 'N' : '') + (cfg.langType ? 'T' : '') + (cfg.regions && cfg.regions.length ? 'R' + regionMask(cfg) : '') + (cfg.limit ? 'C' + cfg.limit : '');
+const optLetters = (cfg) => (cfg.hard ? 'N' : '') + (cfg.langType ? 'T' : '') + (cfg.strict ? 'E' : '') + (cfg.regions && cfg.regions.length ? 'R' + regionMask(cfg) : '') + (cfg.limit ? 'C' + cfg.limit : '');
 // Several continents / a random number: tidy into the canonical form (1 continent → region; all 6 → world).
 function withWhere(cfg, regions, limit) {
   delete cfg.regions; delete cfg.limit;
@@ -284,7 +288,7 @@ function decodeCode(text) {
     withWhere(cfg, mask ? CONTINENTS.filter((r, i) => +mask[1] & (1 << i)) : [], lim ? +lim[1] : 0);
     if (cfg.kind === 'quick' && cfg.count > cfgPool(cfg).length) return null;
   }
-  return withOpts(cfg, { hard: /N/.test(f), langType: /T/.test(f) });
+  return withOpts(cfg, { hard: /N/.test(f), langType: /T/.test(f), strict: /E/.test(f) });
 }
 function decodeBase(text) {
   const t = String(text || '').toUpperCase().replace(/[IL]/g, '1').replace(/O/g, '0').replace(/[^0-9A-Z]/g, '');
@@ -338,7 +342,7 @@ function whereLabel(cfg) {
 }
 function cfgTotal(cfg) { return cfg.kind === 'board' ? makeBoard(cfg).reduce((n, sec) => n + sec.ids.length, 0) : cfg.count; }
 function cfgLabel(cfg) {
-  if (cfg.kind === 'board') return cfg.games.map((g) => gameOf(g).label).join(' + ') + ' · ' + (cfg.custom ? 'My misses' : whereLabel(cfg)) + (cfg.hard ? ' · No borders' : '') + (cfg.langType ? ' · Typed' : '') + (cfg.help ? ' · Spelling help' : '');
+  if (cfg.kind === 'board') return cfg.games.map((g) => gameOf(g).label).join(' + ') + ' · ' + (cfg.custom ? 'My misses' : whereLabel(cfg)) + (cfg.hard ? ' · No borders' : '') + (cfg.langType ? ' · Typed' : '') + (cfg.strict ? ' · One shot' : '') + (cfg.help && !cfg.strict ? ' · Spelling help' : '');
   return [modeOf(cfg.mode).label, whereLabel(cfg), cfg.count === cfgPool(cfg).length ? 'All ' + cfg.count : String(cfg.count), styleOf(cfg.style).label].join(' · ') + ' · Quick';
 }
 const bestKey = (cfg) => cfg.kind === 'board' ? ['b', cfg.games.join('+'), cfg.region].join('|') + (optLetters(cfg) ? '|' + optLetters(cfg) : '') : [cfg.mode, cfg.region, cfg.count, cfg.style].join('|') + (optLetters(cfg) ? '|' + optLetters(cfg) : '');
@@ -690,18 +694,20 @@ function setup() {
     whereCard(),
     st.kind === 'quick' ? quickCards() : null,
     h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Options'),
-      st.kind === 'board' || st.style === 'type' ? optRow('💡 Spelling help', !!st.help, set('help')) : null,
+      (st.kind === 'board' || st.style === 'type') && !(st.kind === 'board' && st.strict) ? optRow('💡 Spelling help', !!st.help, set('help')) : null,
       st.kind === 'board' && st.group !== 'live' ? optRow('🧘 Practice (no clock)', !!st.practice, set('practice')) : null,
       st.kind === 'board' && st.games.some((g) => MAP_GAMES.has(g)) ? optRow('🧱 Map: no borders', !!st.hard, set('hard')) : null,
-      st.kind === 'board' && st.games.includes('lang') ? optRow('⌨️ Languages: type it', !!st.langType, set('langType')) : null),
+      st.kind === 'board' && st.games.includes('lang') ? optRow('⌨️ Languages: type it', !!st.langType, set('langType')) : null,
+      st.kind === 'board' && (st.games.some((g) => ['flags', 'shapes', 'capitals', 'revcap', 'mapname', 'borders'].includes(g)) || (st.games.includes('lang') && st.langType)) ? optRow('🎯 One shot (Enter to answer)', !!st.strict, set('strict')) : null,
+      st.kind === 'board' && st.group === 'live' ? optRow('👀 See what game others are on', st.peek !== false, set('peek')) : null),
     S.liveNext ? null : h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Who is playing'),
       seg([{ id: false, label: 'Just me', em: '🙋' }, { id: true, label: 'Pass the phone', em: '👥' }].concat(st.kind === 'board' ? [{ id: 'live', label: 'Online', em: '🌐' }] : []), st.kind === 'quick' && st.group === 'live' ? false : st.group, set('group'), st.kind === 'board' ? 3 : 2),
       st.group === true ? [
         h('div', { class: 'chips' }, S.players.map((p, i) => h('span', { class: 'chip' }, p, h('button', { 'aria-label': 'Remove ' + p, onclick: () => { S.players.splice(i, 1); store.set('gs_players_v1', S.players); setup(); } }, '✕')))),
         h('div', { class: 'row' }, nameInput = h('input', { id: 'pname', class: 'input', placeholder: 'Add a player', maxlength: 24, onkeydown: (e) => { if (e.key === 'Enter') addPlayer(); } }), h('button', { class: 'btn ghost small', style: { flex: '0 0 auto', width: 'auto' }, onclick: addPlayer }, '+ Add')),
       ] : nameField()),
-    S.liveNext ? h('button', { class: 'btn primary', disabled: noWhere, onclick: () => liveStartRound(Object.assign(cfgNow(), { help: !!st.help })) }, '▶ Start round ' + ((LIVE.room && LIVE.room.round || 0) + 1)) :
-    st.group === 'live' && st.kind === 'board' ? h('button', { class: 'btn primary', disabled: noWhere, onclick: () => liveCreate(Object.assign(cfgNow(), { help: !!st.help })) }, '🌐 Create room') :
+    S.liveNext ? h('button', { class: 'btn primary', disabled: noWhere, onclick: () => liveStartRound(liveCfg(cfgNow(), st)) }, '▶ Start round ' + ((LIVE.room && LIVE.room.round || 0) + 1)) :
+    st.group === 'live' && st.kind === 'board' ? h('button', { class: 'btn primary', disabled: noWhere, onclick: () => liveCreate(liveCfg(cfgNow(), st)) }, '🌐 Create room') :
     h('button', {
       class: 'btn primary', disabled: noWhere || (st.group === true && S.players.length < 2),
       onclick: () => startSession(cfgNow(), st.group === true ? S.players.slice() : [S.myName || 'You'], null),
@@ -801,7 +807,7 @@ function startSession(cfg, players, challenge, daily, practice) {
   // Practice: board runs you started yourself (never a daily or a friend's challenge), or a misses drill.
   const pr = practice != null ? practice : !!S.setup.practice && cfg.kind === 'board' && daily == null && !challenge;
   // Spelling help: an online room's setting (cfg.help) is the same for everyone in it; otherwise your own switch.
-  S.session = { cfg, players, idx: 0, scores: [], challenge, help: cfg.help != null ? !!cfg.help : !!S.setup.help, daily: daily != null ? daily : null, practice: pr };
+  S.session = { cfg, players, idx: 0, scores: [], challenge, help: !cfg.strict && (cfg.help != null ? !!cfg.help : !!S.setup.help), daily: daily != null ? daily : null, practice: pr };
   if (cfg.kind === 'board') {
     S.session.board = makeBoard(cfg);
     if (cfg.games.some((g) => g === 'flags' || g === 'flagmap' || g === 'duel')) preloadFlags(cfgPool(cfg));
@@ -1133,12 +1139,15 @@ function gridGame(api) {
     select(n, true);
   }
   // Right answer → accepted the moment it's typed. Enter on a wrong answer just shakes (it never skips).
+  // One shot (cfg.strict): nothing happens while typing; Enter answers — right counts, wrong shows the answer
+  // in red (missed) and moves on. No spelling help.
+  const strict = !!S.session.cfg.strict;
   input.addEventListener('input', () => {
-    if (revealed) return;
+    if (revealed || strict) return;
     if (isRight(ids[active], kind, input.value)) accept(); else help.update();
   });
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); if (!revealed) help.enter(); }
+    if (e.key === 'Enter') { e.preventDefault(); if (revealed) return; if (strict) { if (!input.value.trim()) return; if (isRight(ids[active], kind, input.value)) accept(); else { shake(input); showAnswer(); } } else help.enter(); }
     else if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) { e.preventDefault(); step(1); }
     else if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) { e.preventDefault(); step(-1); }
   });
@@ -1429,7 +1438,7 @@ function mapGame(api) {
     const cur = queue[0];
     if (naming) {
       setState(cur, 'miss'); missedN++;
-      const r = els[cur][0].getBoundingClientRect(); tapName(r.left + r.width / 2, r.top + r.height / 2, BY_ID[cur].name, false);
+      const w = wrap.getBoundingClientRect(); tapName(w.left + w.width / 2, w.top + 64, BY_ID[cur].name, false);
       hint.textContent = 'That was ' + BY_ID[cur].name;
       queue.shift(); count(); ask(); return;
     }
@@ -1514,8 +1523,10 @@ function mapGame(api) {
     const w = wrap.getBoundingClientRect(); tapName(w.left + w.width / 2, w.top + 64, BY_ID[cur].name, true);
     queue.shift(); count(); ask();
   }
-  nameInput.addEventListener('input', () => { if (!naming || ended || revealed) return; if (isRight(queue[0], 'country', nameInput.value)) named(); else help.update(); });
-  nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (!ended && !revealed) { if (isRight(queue[0], 'country', nameInput.value)) named(); else help.enter(); } } });
+  // One shot (cfg.strict): Enter answers; a wrong name is missed (the answer shows) and the next one comes.
+  const strict = !!S.session.cfg.strict;
+  nameInput.addEventListener('input', () => { if (!naming || ended || revealed || strict) return; if (isRight(queue[0], 'country', nameInput.value)) named(); else help.update(); });
+  nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (!ended && !revealed) { if (isRight(queue[0], 'country', nameInput.value)) named(); else if (strict) { if (nameInput.value.trim()) { shake(nameInput); showAnswer(); } } else help.enter(); } } });
   /* Map: name it — each new gold country: a smooth flight to it (zoom out a little, travel, zoom in), ending
      with it centred and small enough that you can see its neighbours. Speed 1–10 from the slider (10 = instant). */
   const ANIM_MS = [1800, 1500, 1250, 1050, 850, 700, 550, 400, 250, 0];
@@ -1671,8 +1682,10 @@ function bordersGame(api) {
     }, 1400);
   }
   function skip() { if (revealed || ended || queue.length < 2) return; queue.push(queue.shift()); input.value = ''; help.clear(); draw(); input.focus({ preventScroll: true }); }
-  input.addEventListener('input', () => { if (revealed || ended) return; if (match(input.value)) accept(); else help.update(); });
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (!revealed && !ended) { if (match(input.value)) accept(); else help.enter(); } } });
+  // One shot (cfg.strict): Enter answers; a wrong neighbour ends this country (the rest count as missed).
+  const strict = !!S.session.cfg.strict;
+  input.addEventListener('input', () => { if (revealed || ended || strict) return; if (match(input.value)) accept(); else help.update(); });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (!revealed && !ended) { if (match(input.value)) accept(); else if (strict) { if (input.value.trim() && !showing) { shake(input); showAnswer(); } } else help.enter(); } } });
   count(); draw(); input.focus({ preventScroll: true });
   return {
     completed() { head.classList.add('all-done'); },
@@ -1760,9 +1773,16 @@ function langGame(api) {
   const typed = !!S.session.cfg.langType;
   const input = typed ? h('input', { class: 'input', type: 'text', autocomplete: 'off', autocorrect: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'go', placeholder: 'Type the language…', 'aria-label': 'The language' }) : null;
   const verdict = h('p', { class: 'lang-verdict center' });
+  const strict = !!S.session.cfg.strict; // one shot: Enter answers, a wrong one is missed
   if (typed) {
-    input.addEventListener('input', () => { if (!busy && i < sec.ids.length && langAnswer(langOf(sec.ids[i]).k, input.value)) pick(langOf(sec.ids[i]).k); });
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (!busy && input.value.trim()) shake(input); } });
+    input.addEventListener('input', () => { if (!strict && !busy && i < sec.ids.length && langAnswer(langOf(sec.ids[i]).k, input.value)) pick(langOf(sec.ids[i]).k); });
+    input.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      if (busy || i >= sec.ids.length || !input.value.trim()) return;
+      const k = langOf(sec.ids[i]).k;
+      if (langAnswer(k, input.value)) pick(k); else if (strict) { shake(input); pick('~wrong'); } else shake(input);
+    });
   }
   function count() { foundEl.textContent = res.found.length + ' / ' + sec.ids.length + ' right · round ' + Math.min(i + 1, sec.ids.length); }
   function draw() {
@@ -2219,8 +2239,14 @@ function liveFinished(score) {
 // Standings, best first: finished players by score then time, then everyone else by how many they've found.
 function liveStandings(room) {
   const total = cfgTotal(room.cfg);
-  return Object.entries(room.players || {}).filter(([, p]) => !p.gone || p.done).map(([id, p]) => ({ id, name: p.name, found: p.found || 0, done: !!p.done, time: p.time, correct: p.correct, total }))
+  return Object.entries(room.players || {}).filter(([, p]) => !p.gone || p.done).map(([id, p]) => ({ id, name: p.name, found: p.found || 0, sec: p.sec || 0, done: !!p.done, time: p.time, correct: p.correct, total }))
     .sort((a, b) => (b.done && a.done) ? (b.correct - a.correct || a.time - b.time) : (b.found - a.found || (b.done ? 1 : 0) - (a.done ? 1 : 0)));
+}
+// Which game a friend who's still playing is on ("🏛️ Capitals"), or just "playing…" when the host hid it.
+function livePeek(room, p) {
+  if (room.cfg.noPeek) return 'playing…';
+  const g = room.cfg.games[Math.min(p.sec || 0, room.cfg.games.length - 1)];
+  return gameOf(g).em + ' ' + gameOf(g).label;
 }
 // The little bar of standings at the bottom of the screen during a race.
 function liveBar() {
@@ -2229,9 +2255,12 @@ function liveBar() {
   document.body.appendChild(bar);
   const draw = (room) => {
     if (!room || !S.session || !S.session.live) return bar.remove();
-    const st = liveStandings(room), total = cfgTotal(room.cfg);
-    bar.replaceChildren(...st.slice(0, 5).map((p, i) => h('span', { class: 'lb' + (p.id === NET.uid() ? ' me' : '') + (p.done ? ' done' : '') },
-      h('b', null, (i + 1) + '. ' + p.name), ' ' + (p.done ? '✓ ' + p.correct : p.found) + '/' + total)));
+    // You see your own progress; a friend's score only once they've finished. Until then, just which game
+    // they're on (unless the host turned that off).
+    const total = cfgTotal(room.cfg), me = NET.uid(), all = liveStandings(room);
+    const st = all.filter((p) => p.done).concat(all.filter((p) => !p.done && p.id === me), all.filter((p) => !p.done && p.id !== me).sort((a, b) => a.name.localeCompare(b.name)));
+    bar.replaceChildren(...st.slice(0, 5).map((p, i) => h('span', { class: 'lb' + (p.id === me ? ' me' : '') + (p.done ? ' done' : '') },
+      h('b', null, (p.done ? (i + 1) + '. ' : '') + p.name), ' ' + (p.done ? '✓ ' + p.correct + '/' + total : p.id === me ? p.found + '/' + total : livePeek(room, p)))));
   };
   if (LIVE.room) draw(LIVE.room);
   const prev = LIVE.unwatch;
@@ -2264,11 +2293,18 @@ function h2hCard(ids) {
   return h('div', { class: 'h2h' }, h('p', { class: 'eyebrow' }, '⚔️ Head to head'),
     h('ul', { class: 'pairs' }, rows.map(([, r]) => h('li', null, h('span', null, 'You vs ' + r.name), h('b', { class: 'num ' + (r.w > r.l ? 'up' : r.w < r.l ? 'down' : '') }, r.w + ' – ' + r.l + (r.t ? ' · ' + r.t + 'T' : ''))))));
 }
+// A room's run: the host's spelling help and "see what game others are on" are for everyone. (Firebase can't
+// store undefined, so options are only added when they're on.)
+function liveCfg(cfg, st) {
+  if (st.help && !cfg.strict) cfg.help = true;
+  if (st.peek === false) cfg.noPeek = true;
+  return cfg;
+}
 // Host, "Another round": back to the game list to change anything, then Start round (setup's button).
 function liveNextRound() {
   NET.update('rooms/' + LIVE.code, { picking: true }).catch(() => {});
   if (LIVE.room && LIVE.room.cfg) {
-    const c = LIVE.room.cfg; Object.assign(S.setup, { kind: 'board', games: c.games.slice(), help: !!c.help, hard: !!c.hard, langType: !!c.langType });
+    const c = LIVE.room.cfg; Object.assign(S.setup, { kind: 'board', games: c.games.slice(), help: !!c.help, hard: !!c.hard, langType: !!c.langType, strict: !!c.strict, peek: !c.noPeek });
     if (c.regions) Object.assign(S.setup, { multi: true, regions: c.regions.slice() });
     else Object.assign(S.setup, { multi: false, region: c.limit ? 'mixed' : c.region }, c.limit ? { mixN: c.limit } : {});
   }
@@ -2290,7 +2326,7 @@ function liveResults() {
     const st = all.filter((p) => p.done).concat(all.filter((p) => !p.done).sort((a, b) => a.name.localeCompare(b.name)));
     box.replaceChildren(h('p', { class: 'eyebrow' }, '🌐 Room ' + LIVE.code + (waiting ? ' · ' + waiting + ' still playing' : '')),
       h('ul', { class: 'list board' }, st.map((p, i) => h('li', { class: i === 0 && p.done ? 'first' : null }, h('span', { class: 'rank' }, p.done ? String(i + 1) : '–'),
-        h('div', { class: 'q' }, p.name + (p.id === NET.uid() ? ' (you)' : ''), h('small', null, p.done ? p.correct + '/' + p.total + ' found' : 'still playing…')),
+        h('div', { class: 'q' }, p.name + (p.id === NET.uid() ? ' (you)' : ''), h('small', null, p.done ? p.correct + '/' + p.total + ' found' : 'still playing' + (room.cfg.noPeek ? '…' : ' · ' + livePeek(room, p)))),
         h('div', { class: 't' }, p.done ? fmtTime(p.time) : '…')))),
       ...[(h2hRecord(room), h2hCard(st.map((p) => p.id)))].filter(Boolean),
       host ? h('button', { class: 'btn primary small', onclick: liveNextRound }, '🔁 Another round')
