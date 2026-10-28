@@ -334,7 +334,7 @@ function h2hCard(ids) {
 // A room's run: the host's spelling help and "see what game others are on" are for everyone. (Firebase can't
 // store undefined, so options are only added when they're on.)
 function liveCfg(cfg, st) {
-  if (st.help && !cfg.strict) cfg.help = true;
+  if (st.help) cfg.help = true;
   if (st.peek === false) cfg.noPeek = true;
   return cfg;
 }
@@ -342,7 +342,7 @@ function liveCfg(cfg, st) {
 function liveNextRound() {
   NET.update('rooms/' + LIVE.code, { picking: true }).catch(() => {});
   if (LIVE.room && LIVE.room.cfg) {
-    const c = LIVE.room.cfg; Object.assign(S.setup, { kind: 'board', games: c.games.slice(), help: !!c.help, hard: !!c.hard, langType: !!c.langType, strict: !!c.strict, peek: !c.noPeek });
+    const c = LIVE.room.cfg; Object.assign(S.setup, { kind: 'board', games: c.games.slice(), help: !!c.help, hard: !!c.hard, langType: !!c.langType, strict: !!c.strict, allMap: !!c.allMap, peek: !c.noPeek });
     if (c.regions) Object.assign(S.setup, { multi: true, regions: c.regions.slice() });
     else Object.assign(S.setup, { multi: false, region: c.limit ? 'mixed' : c.region }, c.limit ? { mixN: c.limit } : {});
   }

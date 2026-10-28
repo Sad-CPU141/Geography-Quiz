@@ -31,9 +31,12 @@ function bordersGame(api) {
   const remaining = (id) => BY_ID[id].nb.filter((n) => !done.has(id + '>' + n));
   // Which still-missing neighbour of the current country does this text name?
   const match = (text) => { const cur = queue[0]; return cur ? remaining(cur).find((n) => isRight(n, 'country', text)) : null; };
-  const help = spellingHelp(input, sugEl, 'country', () => queue[0], () => accept(), (text) => !!match(text));
-  function count() { foundEl.textContent = done.size + ' / ' + sec.ids.length + ' borders'; }
+  const strict = !!S.session.cfg.strict; // One shot: Enter answers; a wrong neighbour ends this country (rest missed)
+  const help = spellingHelp(input, sugEl, 'country', () => queue[0], () => accept(), (text) => !!match(text), strict ? () => { if (!showing) { shake(input); showAnswer(); } } : null);
+  // Borders found, and how many countries are still to go.
+  function count() { foundEl.textContent = done.size + ' borders · ' + queue.length + (queue.length === 1 ? ' country' : ' countries') + ' left'; }
   function draw() {
+    count();
     const cur = queue[0];
     if (!cur) return;
     const c = BY_ID[cur];
@@ -66,10 +69,8 @@ function bordersGame(api) {
     }, 1400);
   }
   function skip() { if (revealed || ended || queue.length < 2) return; queue.push(queue.shift()); input.value = ''; help.clear(); draw(); input.focus({ preventScroll: true }); }
-  // One shot (cfg.strict): Enter answers; a wrong neighbour ends this country (the rest count as missed).
-  const strict = !!S.session.cfg.strict;
-  input.addEventListener('input', () => { if (revealed || ended || strict) return; if (match(input.value)) accept(); else help.update(); });
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (!revealed && !ended) { if (match(input.value)) accept(); else if (strict) { if (input.value.trim() && !showing) { shake(input); showAnswer(); } } else help.enter(); } } });
+  input.addEventListener('input', () => { if (revealed || ended) return; if (!strict && match(input.value)) accept(); else help.update(); });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (!revealed && !ended && !showing) { if (match(input.value)) accept(); else if (!strict || input.value.trim()) help.enter(); } } });
   count(); draw(); input.focus({ preventScroll: true });
   return {
     completed() { head.classList.add('all-done'); },
@@ -96,7 +97,7 @@ function duelGame(api) {
   const head = boardHead(api, h('div', { class: 'progress' }, foundEl));
   mount(h('div', { class: 'app grid-run' }, head, arena, footer));
   const fmtArea = (a) => a.toLocaleString('en-US') + ' km²';
-  function count() { foundEl.textContent = res.found.length + ' / ' + sec.ids.length + ' right · round ' + Math.min(i + 1, sec.ids.length); }
+  function count() { foundEl.textContent = res.found.length + ' right · ' + Math.max(0, sec.ids.length - i - (busy ? 1 : 0)) + ' left'; }
   function draw() {
     const [a, b] = sec.ids[i].split('|');
     arena.replaceChildren(h('p', { class: 'eyebrow center' }, 'Which is bigger?'), h('div', { class: 'duel-row' }, [a, b].map((id, k) => h('button', { class: 'duel-pick', 'data-id': id, onclick: () => pick(id) },
@@ -168,7 +169,7 @@ function langGame(api) {
       if (langAnswer(k, input.value)) pick(k); else if (strict) { shake(input); pick('~wrong'); } else shake(input);
     });
   }
-  function count() { foundEl.textContent = res.found.length + ' / ' + sec.ids.length + ' right · round ' + Math.min(i + 1, sec.ids.length); }
+  function count() { foundEl.textContent = res.found.length + ' right · ' + Math.max(0, sec.ids.length - i - (busy ? 1 : 0)) + ' left'; }
   function draw() {
     const k = sec.ids[i];
     if (typed) {

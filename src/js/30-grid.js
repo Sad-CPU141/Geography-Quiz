@@ -20,7 +20,10 @@ function gridGame(api) {
     placeholder: kind === 'capital' ? 'Type the capital…' : 'Type the country…', 'aria-label': 'Answer for the selected tile' });
   const preview = h('div', { class: 'preview' });
   const sugEl = h('div', { class: 'suggest', 'aria-live': 'polite', hidden: true });
-  const help = spellingHelp(input, sugEl, kind, () => ids[active], () => accept());
+  // One shot (cfg.strict): nothing goes in while typing; Enter answers — right counts, wrong shows the answer in
+  // red (missed) and moves on. Spelling help still suggests; tapping a suggestion is your answer.
+  const strict = !!S.session.cfg.strict;
+  const help = spellingHelp(input, sugEl, kind, () => ids[active], () => accept(), null, strict ? () => { shake(input); showAnswer(); } : null);
   const tiles = ids.map((id, i) => h('button', { class: 'tile', 'data-id': id, 'aria-label': kind === 'capital' ? 'Capital of ' + BY_ID[id].name : game === 'revcap' ? 'Country with the capital ' + BY_ID[id].capital : 'Tile ' + (i + 1),
     onmousedown: (e) => e.preventDefault(), onclick: () => { if (!revealed) select(i, true); } },
   tilePic(game, id), h('span', { class: 'lbl' })));
@@ -41,7 +44,8 @@ function gridGame(api) {
     h('div', { class: 'progress' }, foundEl, api.practice ? h('button', { class: 'showbtn', onmousedown: (e) => e.preventDefault(), onclick: () => showAnswer() }, '👁 Show answer') : null));
   mount(h('div', { class: 'app wide grid-run' }, head, grid, footer));
 
-  function count() { foundEl.textContent = found.size + ' / ' + ids.length + ' found'; }
+  // How many you've got, and how many are still to go (found or shown/missed tiles are done).
+  function count() { foundEl.textContent = found.size + ' found · ' + (ids.length - found.size - shown.size) + ' left'; }
   function select(i, focus) {
     tiles[active].classList.remove('active');
     active = i;
@@ -67,7 +71,7 @@ function gridGame(api) {
     const t = tiles[active];
     t.classList.remove('active'); t.classList.add('missed');
     t.querySelector('.lbl').textContent = answerText(id, kind);
-    input.value = ''; help.clear();
+    input.value = ''; help.clear(); count();
     const n = nextOpen(active, 1);
     if (n < 0) { input.blur(); api.done(); return; }
     select(n, true);
@@ -86,15 +90,12 @@ function gridGame(api) {
     select(n, true);
   }
   // Right answer → accepted the moment it's typed. Enter on a wrong answer just shakes (it never skips).
-  // One shot (cfg.strict): nothing happens while typing; Enter answers — right counts, wrong shows the answer
-  // in red (missed) and moves on. No spelling help.
-  const strict = !!S.session.cfg.strict;
   input.addEventListener('input', () => {
-    if (revealed || strict) return;
-    if (isRight(ids[active], kind, input.value)) accept(); else help.update();
+    if (revealed) return;
+    if (!strict && isRight(ids[active], kind, input.value)) accept(); else help.update();
   });
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); if (revealed) return; if (strict) { if (!input.value.trim()) return; if (isRight(ids[active], kind, input.value)) accept(); else { shake(input); showAnswer(); } } else help.enter(); }
+    if (e.key === 'Enter') { e.preventDefault(); if (revealed) return; if (strict) { if (!input.value.trim()) return; if (isRight(ids[active], kind, input.value)) accept(); else help.enter(); } else help.enter(); }
     else if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) { e.preventDefault(); step(1); }
     else if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) { e.preventDefault(); step(-1); }
   });
@@ -130,14 +131,15 @@ function keepFocus(input, tile) {
    Suggestions come from every country (or capital) in the world, not just the right answer. Tapping one (or
    Enter when there's only one) tries it: right → accepted; wrong → it shakes like any wrong answer. */
 function shake(input) { input.classList.remove('shake'); void input.offsetWidth; input.classList.add('shake'); }
-function spellingHelp(input, el, kindOf, currentId, onRight, matcher) {
+// onWrong (One shot): a wrong try (a suggestion, or Enter) is final — the game marks it missed instead of a shake.
+function spellingHelp(input, el, kindOf, currentId, onRight, matcher, onWrong) {
   let list = [];
   const kind0 = () => (typeof kindOf === 'function' ? kindOf() : kindOf);
   const on = () => !!(S.session && S.session.help);
   const clear = () => { list = []; el.hidden = true; el.replaceChildren(); };
   const tryText = (text) => {
     if (matcher ? matcher(text) : isRight(currentId(), kind0(), text)) { input.value = text; onRight(); }
-    else { input.value = text; clear(); shake(input); }
+    else { input.value = text; clear(); if (onWrong) onWrong(); else shake(input); }
     input.focus({ preventScroll: true });
   };
   return {
@@ -152,7 +154,7 @@ function spellingHelp(input, el, kindOf, currentId, onRight, matcher) {
     },
     enter() {
       if (on() && list.length === 1) return tryText(list[0].text);
-      shake(input);
+      if (onWrong) onWrong(); else shake(input);
     },
   };
 }

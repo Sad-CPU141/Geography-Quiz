@@ -20,7 +20,9 @@ function mapGame(api) {
   // 'mapname' (a country lights up in gold; type its name).
   const mode = sec.game, naming = mode === 'mapname';
   const M = window.GS_MAP, view = mapView(M, S.session.cfg), m = M[view.map];
-  const ids = sec.ids, playable = new Set(ids);
+  // playable = countries you can tap. Normally just the ones in this run (the rest are grey); with
+  // 🌍 All countries on the map (cfg.allMap) every country is live, so you can't tell the answers by colour.
+  const ids = sec.ids, playable = S.session.cfg.allMap ? new Set(DATA.map((c) => c.id)) : new Set(ids);
   const queue = ids.slice();
   const tries = res.tries;
   let revealed = false, ended = false, must = null; // must = a missed country you have to tap to go on
@@ -201,7 +203,7 @@ function mapGame(api) {
   const setState = (id, st) => { (els[id] || []).forEach((el) => { if (st) el.setAttribute('data-st', st); else el.removeAttribute('data-st'); }); if (base) apply(); };
   let missedN = 0;
   function count() {
-    foundEl.textContent = res.found.length + ' / ' + ids.length + ' found';
+    foundEl.textContent = res.found.length + ' found · ' + queue.length + ' left';
     barOk.style.width = (res.found.length / ids.length * 100) + '%'; barMiss.style.width = (missedN / ids.length * 100) + '%';
   }
   // The name of what you tapped, floating where you tapped (green when right, red when wrong).
@@ -303,7 +305,9 @@ function mapGame(api) {
   }
   requestAnimationFrame(() => fit(false));
   // Map: name it.
-  const help = spellingHelp(nameInput, sugEl, 'country', () => queue[0], () => named());
+  // One shot (cfg.strict): Enter answers; a wrong name is missed (the answer shows) and the next one comes.
+  const strict = !!S.session.cfg.strict;
+  const help = spellingHelp(nameInput, sugEl, 'country', () => queue[0], () => named(), null, strict ? () => { shake(nameInput); showAnswer(); } : null);
   function named() {
     const cur = queue[0];
     res.found.push(cur); setState(cur, 'g0'); pop(cur);
@@ -311,10 +315,8 @@ function mapGame(api) {
     const w = wrap.getBoundingClientRect(); tapName(w.left + w.width / 2, w.top + 64, BY_ID[cur].name, true);
     queue.shift(); count(); ask();
   }
-  // One shot (cfg.strict): Enter answers; a wrong name is missed (the answer shows) and the next one comes.
-  const strict = !!S.session.cfg.strict;
-  nameInput.addEventListener('input', () => { if (!naming || ended || revealed || strict) return; if (isRight(queue[0], 'country', nameInput.value)) named(); else help.update(); });
-  nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (!ended && !revealed) { if (isRight(queue[0], 'country', nameInput.value)) named(); else if (strict) { if (nameInput.value.trim()) { shake(nameInput); showAnswer(); } } else help.enter(); } } });
+  nameInput.addEventListener('input', () => { if (!naming || ended || revealed) return; if (!strict && isRight(queue[0], 'country', nameInput.value)) named(); else help.update(); });
+  nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (!ended && !revealed) { if (isRight(queue[0], 'country', nameInput.value)) named(); else if (!strict || nameInput.value.trim()) help.enter(); } } });
   /* Map: name it — each new gold country: a smooth flight to it (zoom out a little, travel, zoom in), ending
      with it centred and small enough that you can see its neighbours. Speed 1–10 from the slider (10 = instant). */
   const ANIM_MS = [1800, 1500, 1250, 1050, 850, 700, 550, 400, 250, 0];

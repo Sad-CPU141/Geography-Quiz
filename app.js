@@ -1,7 +1,7 @@
-/* Geography Speedrun b5e19eac4d — built from src/js/ by build.js. Edit src/, not this file. */
+/* Geography Speedrun 6ec0e1832d — built from src/js/ by build.js. Edit src/, not this file. */
 (function () {
 'use strict';
-const APP_VERSION = "b5e19eac4d";
+const APP_VERSION = "6ec0e1832d";
 /* ---- core: data, answer matching, runs, challenge codes (no DOM; tested by tests/run.js) ---- */
 const DATA = window.GS_DATA.countries;
 const BY_ID = Object.fromEntries(DATA.map((c) => [c.id, c]));
@@ -250,11 +250,12 @@ function withOpts(cfg, o) {
   if (o && o.hard && hasMapGame(cfg)) cfg.hard = true; else delete cfg.hard;
   if (o && o.langType && cfg.kind === 'board' && cfg.games.includes('lang')) cfg.langType = true; else delete cfg.langType;
   if (o && o.strict && hasTypingGame(cfg)) cfg.strict = true; else delete cfg.strict;
+  if (o && o.allMap && hasMapGame(cfg)) cfg.allMap = true; else delete cfg.allMap;
   return cfg;
 }
 // Where (after the "+" too): R<mask> = several continents (bit i = CONTINENTS[i]), C<n> = n random countries.
 const regionMask = (cfg) => (cfg.regions || []).reduce((m, r) => m | (1 << CONTINENTS.indexOf(r)), 0);
-const optLetters = (cfg) => (cfg.hard ? 'N' : '') + (cfg.langType ? 'T' : '') + (cfg.strict ? 'E' : '') + (cfg.regions && cfg.regions.length ? 'R' + regionMask(cfg) : '') + (cfg.limit ? 'C' + cfg.limit : '');
+const optLetters = (cfg) => (cfg.hard ? 'N' : '') + (cfg.langType ? 'T' : '') + (cfg.strict ? 'E' : '') + (cfg.allMap ? 'A' : '') + (cfg.regions && cfg.regions.length ? 'R' + regionMask(cfg) : '') + (cfg.limit ? 'C' + cfg.limit : '');
 // Several continents / a random number: tidy into the canonical form (1 continent → region; all 6 → world).
 function withWhere(cfg, regions, limit) {
   delete cfg.regions; delete cfg.limit;
@@ -288,7 +289,7 @@ function decodeCode(text) {
     withWhere(cfg, mask ? CONTINENTS.filter((r, i) => +mask[1] & (1 << i)) : [], lim ? +lim[1] : 0);
     if (cfg.kind === 'quick' && cfg.count > cfgPool(cfg).length) return null;
   }
-  return withOpts(cfg, { hard: /N/.test(f), langType: /T/.test(f), strict: /E/.test(f) });
+  return withOpts(cfg, { hard: /N/.test(f), langType: /T/.test(f), strict: /E/.test(f), allMap: /A/.test(f) });
 }
 function decodeBase(text) {
   const t = String(text || '').toUpperCase().replace(/[IL]/g, '1').replace(/O/g, '0').replace(/[^0-9A-Z]/g, '');
@@ -342,7 +343,7 @@ function whereLabel(cfg) {
 }
 function cfgTotal(cfg) { return cfg.kind === 'board' ? makeBoard(cfg).reduce((n, sec) => n + sec.ids.length, 0) : cfg.count; }
 function cfgLabel(cfg) {
-  if (cfg.kind === 'board') return cfg.games.map((g) => gameOf(g).label).join(' + ') + ' · ' + (cfg.custom ? 'My misses' : whereLabel(cfg)) + (cfg.hard ? ' · No borders' : '') + (cfg.langType ? ' · Typed' : '') + (cfg.strict ? ' · One shot' : '') + (cfg.help && !cfg.strict ? ' · Spelling help' : '');
+  if (cfg.kind === 'board') return cfg.games.map((g) => gameOf(g).label).join(' + ') + ' · ' + (cfg.custom ? 'My misses' : whereLabel(cfg)) + (cfg.hard ? ' · No borders' : '') + (cfg.langType ? ' · Typed' : '') + (cfg.strict ? ' · One shot' : '') + (cfg.allMap ? ' · All countries' : '') + (cfg.help ? ' · Spelling help' : '');
   return [modeOf(cfg.mode).label, whereLabel(cfg), cfg.count === cfgPool(cfg).length ? 'All ' + cfg.count : String(cfg.count), styleOf(cfg.style).label].join(' · ') + ' · Quick';
 }
 const bestKey = (cfg) => cfg.kind === 'board' ? ['b', cfg.games.join('+'), cfg.region].join('|') + (optLetters(cfg) ? '|' + optLetters(cfg) : '') : [cfg.mode, cfg.region, cfg.count, cfg.style].join('|') + (optLetters(cfg) ? '|' + optLetters(cfg) : '');
@@ -694,9 +695,10 @@ function setup() {
     whereCard(),
     st.kind === 'quick' ? quickCards() : null,
     h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Options'),
-      (st.kind === 'board' || st.style === 'type') && !(st.kind === 'board' && st.strict) ? optRow('💡 Spelling help', !!st.help, set('help')) : null,
+      st.kind === 'board' || st.style === 'type' ? optRow('💡 Spelling help', !!st.help, set('help')) : null,
       st.kind === 'board' && st.group !== 'live' ? optRow('🧘 Practice (no clock)', !!st.practice, set('practice')) : null,
       st.kind === 'board' && st.games.some((g) => MAP_GAMES.has(g)) ? optRow('🧱 Map: no borders', !!st.hard, set('hard')) : null,
+      st.kind === 'board' && st.games.some((g) => MAP_GAMES.has(g)) ? optRow('🌍 Map: all countries tappable', !!st.allMap, set('allMap')) : null,
       st.kind === 'board' && st.games.includes('lang') ? optRow('⌨️ Languages: type it', !!st.langType, set('langType')) : null,
       st.kind === 'board' && (st.games.some((g) => ['flags', 'shapes', 'capitals', 'revcap', 'mapname', 'borders'].includes(g)) || (st.games.includes('lang') && st.langType)) ? optRow('🎯 One shot (Enter to answer)', !!st.strict, set('strict')) : null,
       st.kind === 'board' && st.group === 'live' ? optRow('👀 See what game others are on', st.peek !== false, set('peek')) : null),
@@ -807,7 +809,7 @@ function startSession(cfg, players, challenge, daily, practice) {
   // Practice: board runs you started yourself (never a daily or a friend's challenge), or a misses drill.
   const pr = practice != null ? practice : !!S.setup.practice && cfg.kind === 'board' && daily == null && !challenge;
   // Spelling help: an online room's setting (cfg.help) is the same for everyone in it; otherwise your own switch.
-  S.session = { cfg, players, idx: 0, scores: [], challenge, help: !cfg.strict && (cfg.help != null ? !!cfg.help : !!S.setup.help), daily: daily != null ? daily : null, practice: pr };
+  S.session = { cfg, players, idx: 0, scores: [], challenge, help: cfg.help != null ? !!cfg.help : !!S.setup.help, daily: daily != null ? daily : null, practice: pr };
   if (cfg.kind === 'board') {
     S.session.board = makeBoard(cfg);
     if (cfg.games.some((g) => g === 'flags' || g === 'flagmap' || g === 'duel')) preloadFlags(cfgPool(cfg));
@@ -1073,7 +1075,10 @@ function gridGame(api) {
     placeholder: kind === 'capital' ? 'Type the capital…' : 'Type the country…', 'aria-label': 'Answer for the selected tile' });
   const preview = h('div', { class: 'preview' });
   const sugEl = h('div', { class: 'suggest', 'aria-live': 'polite', hidden: true });
-  const help = spellingHelp(input, sugEl, kind, () => ids[active], () => accept());
+  // One shot (cfg.strict): nothing goes in while typing; Enter answers — right counts, wrong shows the answer in
+  // red (missed) and moves on. Spelling help still suggests; tapping a suggestion is your answer.
+  const strict = !!S.session.cfg.strict;
+  const help = spellingHelp(input, sugEl, kind, () => ids[active], () => accept(), null, strict ? () => { shake(input); showAnswer(); } : null);
   const tiles = ids.map((id, i) => h('button', { class: 'tile', 'data-id': id, 'aria-label': kind === 'capital' ? 'Capital of ' + BY_ID[id].name : game === 'revcap' ? 'Country with the capital ' + BY_ID[id].capital : 'Tile ' + (i + 1),
     onmousedown: (e) => e.preventDefault(), onclick: () => { if (!revealed) select(i, true); } },
   tilePic(game, id), h('span', { class: 'lbl' })));
@@ -1094,7 +1099,8 @@ function gridGame(api) {
     h('div', { class: 'progress' }, foundEl, api.practice ? h('button', { class: 'showbtn', onmousedown: (e) => e.preventDefault(), onclick: () => showAnswer() }, '👁 Show answer') : null));
   mount(h('div', { class: 'app wide grid-run' }, head, grid, footer));
 
-  function count() { foundEl.textContent = found.size + ' / ' + ids.length + ' found'; }
+  // How many you've got, and how many are still to go (found or shown/missed tiles are done).
+  function count() { foundEl.textContent = found.size + ' found · ' + (ids.length - found.size - shown.size) + ' left'; }
   function select(i, focus) {
     tiles[active].classList.remove('active');
     active = i;
@@ -1120,7 +1126,7 @@ function gridGame(api) {
     const t = tiles[active];
     t.classList.remove('active'); t.classList.add('missed');
     t.querySelector('.lbl').textContent = answerText(id, kind);
-    input.value = ''; help.clear();
+    input.value = ''; help.clear(); count();
     const n = nextOpen(active, 1);
     if (n < 0) { input.blur(); api.done(); return; }
     select(n, true);
@@ -1139,15 +1145,12 @@ function gridGame(api) {
     select(n, true);
   }
   // Right answer → accepted the moment it's typed. Enter on a wrong answer just shakes (it never skips).
-  // One shot (cfg.strict): nothing happens while typing; Enter answers — right counts, wrong shows the answer
-  // in red (missed) and moves on. No spelling help.
-  const strict = !!S.session.cfg.strict;
   input.addEventListener('input', () => {
-    if (revealed || strict) return;
-    if (isRight(ids[active], kind, input.value)) accept(); else help.update();
+    if (revealed) return;
+    if (!strict && isRight(ids[active], kind, input.value)) accept(); else help.update();
   });
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); if (revealed) return; if (strict) { if (!input.value.trim()) return; if (isRight(ids[active], kind, input.value)) accept(); else { shake(input); showAnswer(); } } else help.enter(); }
+    if (e.key === 'Enter') { e.preventDefault(); if (revealed) return; if (strict) { if (!input.value.trim()) return; if (isRight(ids[active], kind, input.value)) accept(); else help.enter(); } else help.enter(); }
     else if (e.key === 'ArrowDown' || (e.key === 'Tab' && !e.shiftKey)) { e.preventDefault(); step(1); }
     else if (e.key === 'ArrowUp' || (e.key === 'Tab' && e.shiftKey)) { e.preventDefault(); step(-1); }
   });
@@ -1183,14 +1186,15 @@ function keepFocus(input, tile) {
    Suggestions come from every country (or capital) in the world, not just the right answer. Tapping one (or
    Enter when there's only one) tries it: right → accepted; wrong → it shakes like any wrong answer. */
 function shake(input) { input.classList.remove('shake'); void input.offsetWidth; input.classList.add('shake'); }
-function spellingHelp(input, el, kindOf, currentId, onRight, matcher) {
+// onWrong (One shot): a wrong try (a suggestion, or Enter) is final — the game marks it missed instead of a shake.
+function spellingHelp(input, el, kindOf, currentId, onRight, matcher, onWrong) {
   let list = [];
   const kind0 = () => (typeof kindOf === 'function' ? kindOf() : kindOf);
   const on = () => !!(S.session && S.session.help);
   const clear = () => { list = []; el.hidden = true; el.replaceChildren(); };
   const tryText = (text) => {
     if (matcher ? matcher(text) : isRight(currentId(), kind0(), text)) { input.value = text; onRight(); }
-    else { input.value = text; clear(); shake(input); }
+    else { input.value = text; clear(); if (onWrong) onWrong(); else shake(input); }
     input.focus({ preventScroll: true });
   };
   return {
@@ -1205,7 +1209,7 @@ function spellingHelp(input, el, kindOf, currentId, onRight, matcher) {
     },
     enter() {
       if (on() && list.length === 1) return tryText(list[0].text);
-      shake(input);
+      if (onWrong) onWrong(); else shake(input);
     },
   };
 }
@@ -1232,7 +1236,9 @@ function mapGame(api) {
   // 'mapname' (a country lights up in gold; type its name).
   const mode = sec.game, naming = mode === 'mapname';
   const M = window.GS_MAP, view = mapView(M, S.session.cfg), m = M[view.map];
-  const ids = sec.ids, playable = new Set(ids);
+  // playable = countries you can tap. Normally just the ones in this run (the rest are grey); with
+  // 🌍 All countries on the map (cfg.allMap) every country is live, so you can't tell the answers by colour.
+  const ids = sec.ids, playable = S.session.cfg.allMap ? new Set(DATA.map((c) => c.id)) : new Set(ids);
   const queue = ids.slice();
   const tries = res.tries;
   let revealed = false, ended = false, must = null; // must = a missed country you have to tap to go on
@@ -1413,7 +1419,7 @@ function mapGame(api) {
   const setState = (id, st) => { (els[id] || []).forEach((el) => { if (st) el.setAttribute('data-st', st); else el.removeAttribute('data-st'); }); if (base) apply(); };
   let missedN = 0;
   function count() {
-    foundEl.textContent = res.found.length + ' / ' + ids.length + ' found';
+    foundEl.textContent = res.found.length + ' found · ' + queue.length + ' left';
     barOk.style.width = (res.found.length / ids.length * 100) + '%'; barMiss.style.width = (missedN / ids.length * 100) + '%';
   }
   // The name of what you tapped, floating where you tapped (green when right, red when wrong).
@@ -1515,7 +1521,9 @@ function mapGame(api) {
   }
   requestAnimationFrame(() => fit(false));
   // Map: name it.
-  const help = spellingHelp(nameInput, sugEl, 'country', () => queue[0], () => named());
+  // One shot (cfg.strict): Enter answers; a wrong name is missed (the answer shows) and the next one comes.
+  const strict = !!S.session.cfg.strict;
+  const help = spellingHelp(nameInput, sugEl, 'country', () => queue[0], () => named(), null, strict ? () => { shake(nameInput); showAnswer(); } : null);
   function named() {
     const cur = queue[0];
     res.found.push(cur); setState(cur, 'g0'); pop(cur);
@@ -1523,10 +1531,8 @@ function mapGame(api) {
     const w = wrap.getBoundingClientRect(); tapName(w.left + w.width / 2, w.top + 64, BY_ID[cur].name, true);
     queue.shift(); count(); ask();
   }
-  // One shot (cfg.strict): Enter answers; a wrong name is missed (the answer shows) and the next one comes.
-  const strict = !!S.session.cfg.strict;
-  nameInput.addEventListener('input', () => { if (!naming || ended || revealed || strict) return; if (isRight(queue[0], 'country', nameInput.value)) named(); else help.update(); });
-  nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (!ended && !revealed) { if (isRight(queue[0], 'country', nameInput.value)) named(); else if (strict) { if (nameInput.value.trim()) { shake(nameInput); showAnswer(); } } else help.enter(); } } });
+  nameInput.addEventListener('input', () => { if (!naming || ended || revealed) return; if (!strict && isRight(queue[0], 'country', nameInput.value)) named(); else help.update(); });
+  nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (!ended && !revealed) { if (isRight(queue[0], 'country', nameInput.value)) named(); else if (!strict || nameInput.value.trim()) help.enter(); } } });
   /* Map: name it — each new gold country: a smooth flight to it (zoom out a little, travel, zoom in), ending
      with it centred and small enough that you can see its neighbours. Speed 1–10 from the slider (10 = instant). */
   const ANIM_MS = [1800, 1500, 1250, 1050, 850, 700, 550, 400, 250, 0];
@@ -1647,9 +1653,12 @@ function bordersGame(api) {
   const remaining = (id) => BY_ID[id].nb.filter((n) => !done.has(id + '>' + n));
   // Which still-missing neighbour of the current country does this text name?
   const match = (text) => { const cur = queue[0]; return cur ? remaining(cur).find((n) => isRight(n, 'country', text)) : null; };
-  const help = spellingHelp(input, sugEl, 'country', () => queue[0], () => accept(), (text) => !!match(text));
-  function count() { foundEl.textContent = done.size + ' / ' + sec.ids.length + ' borders'; }
+  const strict = !!S.session.cfg.strict; // One shot: Enter answers; a wrong neighbour ends this country (rest missed)
+  const help = spellingHelp(input, sugEl, 'country', () => queue[0], () => accept(), (text) => !!match(text), strict ? () => { if (!showing) { shake(input); showAnswer(); } } : null);
+  // Borders found, and how many countries are still to go.
+  function count() { foundEl.textContent = done.size + ' borders · ' + queue.length + (queue.length === 1 ? ' country' : ' countries') + ' left'; }
   function draw() {
+    count();
     const cur = queue[0];
     if (!cur) return;
     const c = BY_ID[cur];
@@ -1682,10 +1691,8 @@ function bordersGame(api) {
     }, 1400);
   }
   function skip() { if (revealed || ended || queue.length < 2) return; queue.push(queue.shift()); input.value = ''; help.clear(); draw(); input.focus({ preventScroll: true }); }
-  // One shot (cfg.strict): Enter answers; a wrong neighbour ends this country (the rest count as missed).
-  const strict = !!S.session.cfg.strict;
-  input.addEventListener('input', () => { if (revealed || ended || strict) return; if (match(input.value)) accept(); else help.update(); });
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (!revealed && !ended) { if (match(input.value)) accept(); else if (strict) { if (input.value.trim() && !showing) { shake(input); showAnswer(); } } else help.enter(); } } });
+  input.addEventListener('input', () => { if (revealed || ended) return; if (!strict && match(input.value)) accept(); else help.update(); });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (!revealed && !ended && !showing) { if (match(input.value)) accept(); else if (!strict || input.value.trim()) help.enter(); } } });
   count(); draw(); input.focus({ preventScroll: true });
   return {
     completed() { head.classList.add('all-done'); },
@@ -1712,7 +1719,7 @@ function duelGame(api) {
   const head = boardHead(api, h('div', { class: 'progress' }, foundEl));
   mount(h('div', { class: 'app grid-run' }, head, arena, footer));
   const fmtArea = (a) => a.toLocaleString('en-US') + ' km²';
-  function count() { foundEl.textContent = res.found.length + ' / ' + sec.ids.length + ' right · round ' + Math.min(i + 1, sec.ids.length); }
+  function count() { foundEl.textContent = res.found.length + ' right · ' + Math.max(0, sec.ids.length - i - (busy ? 1 : 0)) + ' left'; }
   function draw() {
     const [a, b] = sec.ids[i].split('|');
     arena.replaceChildren(h('p', { class: 'eyebrow center' }, 'Which is bigger?'), h('div', { class: 'duel-row' }, [a, b].map((id, k) => h('button', { class: 'duel-pick', 'data-id': id, onclick: () => pick(id) },
@@ -1784,7 +1791,7 @@ function langGame(api) {
       if (langAnswer(k, input.value)) pick(k); else if (strict) { shake(input); pick('~wrong'); } else shake(input);
     });
   }
-  function count() { foundEl.textContent = res.found.length + ' / ' + sec.ids.length + ' right · round ' + Math.min(i + 1, sec.ids.length); }
+  function count() { foundEl.textContent = res.found.length + ' right · ' + Math.max(0, sec.ids.length - i - (busy ? 1 : 0)) + ' left'; }
   function draw() {
     const k = sec.ids[i];
     if (typed) {
@@ -2296,7 +2303,7 @@ function h2hCard(ids) {
 // A room's run: the host's spelling help and "see what game others are on" are for everyone. (Firebase can't
 // store undefined, so options are only added when they're on.)
 function liveCfg(cfg, st) {
-  if (st.help && !cfg.strict) cfg.help = true;
+  if (st.help) cfg.help = true;
   if (st.peek === false) cfg.noPeek = true;
   return cfg;
 }
@@ -2304,7 +2311,7 @@ function liveCfg(cfg, st) {
 function liveNextRound() {
   NET.update('rooms/' + LIVE.code, { picking: true }).catch(() => {});
   if (LIVE.room && LIVE.room.cfg) {
-    const c = LIVE.room.cfg; Object.assign(S.setup, { kind: 'board', games: c.games.slice(), help: !!c.help, hard: !!c.hard, langType: !!c.langType, strict: !!c.strict, peek: !c.noPeek });
+    const c = LIVE.room.cfg; Object.assign(S.setup, { kind: 'board', games: c.games.slice(), help: !!c.help, hard: !!c.hard, langType: !!c.langType, strict: !!c.strict, allMap: !!c.allMap, peek: !c.noPeek });
     if (c.regions) Object.assign(S.setup, { multi: true, regions: c.regions.slice() });
     else Object.assign(S.setup, { multi: false, region: c.limit ? 'mixed' : c.region }, c.limit ? { mixN: c.limit } : {});
   }

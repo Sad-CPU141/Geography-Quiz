@@ -352,6 +352,22 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await page.waitForSelector('svg.map');
     const mapIds = await page.$$eval('svg.map:not(.inset svg) path.cty:not(.off)', (ps) => [...new Set(ps.map((p) => p.dataset.id))].sort());
     ok(mapIds.length === 30 && mapIds.join() !== flagIds.join(), 'Mixed 30: the map game gets its own 30 random countries');
+    // 🌍 All countries tappable: Mixed 10 on the map — no grey countries; tapping one that isn't in the run is a wrong try.
+    await page.goto(BASE);
+    await setupBoard(page, ['Map'], 'World');
+    await page.click('.opt:has-text("Mixed")');
+    await page.fill('.mixn', '10'); await page.locator('.mixn').blur(); await page.waitForTimeout(150);
+    await page.click('.optrow:has-text("all countries tappable") .switch');
+    await page.click('button:has-text("Start")');
+    ok(/All countries/.test(await page.textContent('.topbar')), 'all countries: in the run name');
+    await page.click('button:has-text("Go")'); await page.waitForSelector('svg.map'); await page.waitForTimeout(300);
+    ok(await page.$$eval('svg.map:not(.inset svg) path.cty.off', (p) => p.length) === 0, 'all countries: nothing greyed out');
+    const outsider = await page.evaluate(() => { const asked = window.GS.makeBoard ? null : null; const cur = document.querySelector('.target').textContent; return ['ru', 'ca', 'br', 'au', 'cn', 'us'].find((id) => window.GS.DATA.find((c) => c.id === id).name !== cur); });
+    await resetView(page, 'all');
+    await tapCountry(page, outsider);
+    await page.waitForTimeout(150);
+    ok(/✗ That's/.test(await page.textContent('.maphint')) || /tries left/.test(await page.textContent('.maphint')), 'all countries: tapping a country outside the run counts as a wrong try (' + await page.textContent('.maphint') + ')');
+    ok(/0 found · 10 left/.test(await page.textContent('.found')), 'map: shows how many are left (' + await page.textContent('.found') + ')');
     // Pick several: Africa + Europe.
     await page.goto(BASE);
     await setupBoard(page, ['Flags'], 'World');
@@ -409,12 +425,12 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     ok(/It was /.test(await page.textContent('.lang-verdict')), 'typed: Pass shows the answer');
     await page.screenshot({ path: path.join(outDir, 'opts-typed.png') });
     await page.waitForTimeout(1700);
-    ok(/1 \/ \d+ right/.test(await page.textContent('.found')), 'typed: score 1 after a right one and a pass');
+    ok(/1 right · 18 left/.test(await page.textContent('.found')), 'typed: 1 right, 18 left after a right one and a pass (' + await page.textContent('.found') + ')');
     // One shot: Enter answers; a right answer typed without Enter isn't taken; a wrong one is missed and moves on.
     await page.goto(BASE);
     await setupBoard(page, ['Capitals'], 'Europe');
     await page.click('.optrow:has-text("One shot") .switch');
-    ok(!(await page.$('.optrow:has-text("Spelling help")')), 'one shot: no spelling help switch');
+    await page.click('.optrow:has-text("Spelling help") .switch');
     await page.click('button:has-text("Start")');
     ok(/One shot/.test(await page.textContent('.topbar')), 'one shot: in the run name');
     await page.click('button:has-text("Go")'); await page.waitForSelector('.tile.active');
@@ -426,7 +442,16 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     ok(await page.$('.tile.done[data-id="' + id1 + '"]') !== null, 'one shot: Enter takes it');
     const [id2] = await cap();
     await page.keyboard.type('Atlantis'); await page.keyboard.press('Enter'); await page.waitForTimeout(150);
-    ok(await page.$('.tile.missed[data-id="' + id2 + '"]') !== null && !(await page.$('.tile.active[data-id="' + id2 + '"]')) && /1 \/ 46 found/.test(await page.textContent('.found')), 'one shot: wrong + Enter = missed, next one');
+    ok(await page.$('.tile.missed[data-id="' + id2 + '"]') !== null && !(await page.$('.tile.active[data-id="' + id2 + '"]')) && /1 found · 44 left/.test(await page.textContent('.found')), 'one shot: wrong + Enter = missed, next one (' + await page.textContent('.found') + ')');
+    // One shot with spelling help: a near miss suggests (and isn't taken); tapping the suggestion is your answer.
+    const [id3, c3] = await cap();
+    await page.keyboard.type(c3.slice(0, -1) + (c3.slice(-1) === 'x' ? 'y' : 'x'));
+    await page.waitForSelector('.suggest:not([hidden]) .sug', { timeout: 2000 }).catch(() => {});
+    ok(await page.$('.suggest:not([hidden]) .sug') !== null && await page.$('.tile.active[data-id="' + id3 + '"]') !== null, 'one shot + spelling help: suggestion shown, nothing taken yet');
+    await page.click('.suggest .sug:has-text("' + c3 + '")').catch(() => {});
+    await page.waitForTimeout(150);
+    ok(await page.$('.tile.done[data-id="' + id3 + '"]') !== null, 'one shot + spelling help: tapping the right suggestion answers it');
+
     await page.screenshot({ path: path.join(outDir, 'opts-oneshot.png') });
     ok(errors.length === 0, 'opts: no page errors ' + JSON.stringify(errors));
     await ctx.close();
