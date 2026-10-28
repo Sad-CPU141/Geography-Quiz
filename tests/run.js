@@ -177,7 +177,8 @@ for (let sd = 1; sd <= 25; sd++) {
   ok(sec('scramble').ids.every((id) => { const sc = sec('scramble').scr[id], n = GS.DATA.find((c) => c.id === id).name; return sc.replace(/ /g, '').split('').sort().join() === n.toUpperCase().replace(/ /g, '').split('').sort().join() && GS.norm(sc) !== GS.norm(n); }), 'unscramble: same letters, never the name itself');
   ok(sec('letter').letters.every((x) => x.ids.every((id) => GS.norm(GS.DATA.find((c) => c.id === id).name)[0].toUpperCase() === x.L)), 'letter rush: every answer starts with its letter');
   ok(sec('hot').ids.length === 1 && sec('clues').ids.length === 1 && sec('flagpick').grid.length === sec('flagpick').ids.length, 'hot/clues/flag finder sizes (1 / 1 / all)');
-  ok(sec('letter').letters.length === 1 && sec('letter').letters[0].ids.length === GS.DATA.filter((c) => GS.norm(c.name)[0].toUpperCase() === sec('letter').letters[0].L).length, 'letter rush: every country in the game with that letter counts');
+  { const L = sec('letter').letters[0], inReg = (c) => cfgN.region === 'world' || c.region === cfgN.region;
+    ok(sec('letter').letters.length === 1 && L.ids.length === GS.DATA.filter((c) => inReg(c) && GS.norm(c.name)[0].toUpperCase() === L.L).length, 'letter rush: every country of the region with that letter counts (' + cfgN.region + ' ' + L.L + ')'); }
 }
 ok(GS.km('fr', 'de') > 300 && GS.km('fr', 'de') < 1000 && GS.km('fr', 'au') > 14000, 'distances (France–Germany, France–Australia)');
 ok(Math.abs(GS.bearing('fr', 'de') - 60) < 40 && Math.abs(GS.bearing('fr', 'es') - 220) < 40, 'directions (Germany is north-east of France, Spain south-west)');
@@ -199,6 +200,11 @@ for (const mode of ['revcap', 'scramble']) {
   const run = GS.makeRun(qc);
   ok(run.length === 10 && run.every((q) => q.kind === mode && (mode !== 'scramble' || (q.scr && GS.norm(q.scr) !== GS.norm(GS.DATA.find((c) => c.id === q.id).name)))) && GS.isRight(run[0].id, mode, GS.DATA.find((c) => c.id === run[0].id).name), 'quick fire ' + mode + ': questions, answer = the country');
 }
+// Letter rush with Mixed: the whole world counts, not just the random N.
+const lm = GS.makeBoard(GS.withWhere({ kind: 'board', games: ['letter'], region: 'world', seed: 77 }, [], 10))[0];
+ok(lm.letters[0].ids.length === GS.DATA.filter((c) => GS.norm(c.name)[0].toUpperCase() === lm.letters[0].L).length, 'letter rush + Mixed: every country in the world with that letter counts');
+const le = GS.makeBoard(GS.withWhere({ kind: 'board', games: ['letter'], region: 'world', seed: 7 }, ['Europe', 'Africa']))[0];
+ok(le.letters[0].ids.every((id) => ['Europe', 'Africa'].includes(GS.DATA.find((c) => c.id === id).region)), 'letter rush + several continents: only those continents count');
 // Timers in the code.
 const tc = GS.withOpts({ kind: 'board', games: ['letter', 'scramble'], region: 'world', seed: 3 }, { lrSec: 20, scSec: 8 });
 ok(/L20U8/.test(GS.encodeCode(tc)) && GS.decodeCode(GS.encodeCode(tc)).lrSec === 20 && GS.decodeCode(GS.encodeCode(tc)).scSec === 8 && !GS.withOpts({ kind: 'board', games: ['letter'], region: 'world', seed: 3 }, { lrSec: 12 }).lrSec, 'letter/unscramble timers in the code (normal = left out)');

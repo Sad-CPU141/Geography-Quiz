@@ -1,7 +1,7 @@
 /* Geography Speedrun service worker (same approach as the other Game Night games).
    App files: network first, so new versions win when online; cached copy when offline.
    Flags, icons, fonts: cache first (flag file names are content hashes, so they never go stale). */
-const VERSION = '382eb0e8a6';
+const VERSION = 'f6a0d49a7f';
 const CACHE = 'geospeed-' + VERSION;
 const CORE = ['./', './index.html', './app.js?v=' + VERSION, './data.js?v=' + VERSION, './map.js?v=' + VERSION, './langs.js?v=' + VERSION, './globe.js?v=' + VERSION, './vendor/d3/d3-array.min.js', './vendor/d3/d3-geo.min.js', './styles.css?v=' + VERSION, './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png', './icons/favicon.png',

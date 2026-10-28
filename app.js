@@ -1,7 +1,7 @@
-/* Geography Speedrun 382eb0e8a6 — built from src/js/ by build.js. Edit src/, not this file. */
+/* Geography Speedrun f6a0d49a7f — built from src/js/ by build.js. Edit src/, not this file. */
 (function () {
 'use strict';
-const APP_VERSION = "382eb0e8a6";
+const APP_VERSION = "f6a0d49a7f";
 /* ---- core: data, answer matching, runs, challenge codes (no DOM; tested by tests/run.js) ---- */
 const DATA = window.GS_DATA.countries;
 const BY_ID = Object.fromEntries(DATA.map((c) => [c.id, c]));
@@ -217,13 +217,13 @@ function makeBoard(cfg) {
       });
       sec.ids = keys.slice(0, 15);
     } else if (g === 'letter') {
-      // Letters that start a country of the run (and at least 3 in the world); every country in the game starting
-      // with it counts (owner: spam any of them, not just the region's). Name as many as you can before time's up.
-      const by = {}, here = new Set();
-      DATA.forEach((c) => { const L = norm(c.name)[0].toUpperCase(); (by[L] = by[L] || []).push(c.id); });
-      sec.ids.forEach((id) => here.add(norm(BY_ID[id].name)[0].toUpperCase()));
-      let letters = [...here].filter((L) => by[L].length >= 3).sort();
-      if (!letters.length) letters = [...here].sort();
+      // Every country of the chosen region(s) starting with the letter counts — a continent = that continent's,
+      // Mixed = the whole world (not just the random N, owner). cfgPool without a game index ignores Mixed's N.
+      // Letters with at least 2 countries if possible. Name as many as you can before time's up.
+      const by = {};
+      cfgPool(cfg).forEach((id) => { const L = norm(BY_ID[id].name)[0].toUpperCase(); (by[L] = by[L] || []).push(id); });
+      let letters = Object.keys(by).filter((L) => by[L].length >= 2).sort();
+      if (!letters.length) letters = Object.keys(by).sort();
       sec.letters = shuffle(letters, r).slice(0, N(1)).map((L) => ({ L, ids: by[L].slice().sort() }));
       sec.ids = sec.letters.flatMap((x) => x.ids);
     } else if (g === 'flagpick') {

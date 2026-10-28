@@ -1,4 +1,4 @@
-/* Geography Speedrun 382eb0e8a6 — built from src/styles.css */
+/* Geography Speedrun f6a0d49a7f — built from src/styles.css */
 /* Geography Speedrun — the "game night" family look (Draft Night, Khatfa, Jeopardy-Board): ink/purple stage,
    gold accents, condensed headings. This game's own accent is sky blue. Fonts are self-hosted (SIL OFL). */
 @font-face{font-family:'Anton';font-weight:400;font-display:swap;src:url(fonts/anton-latin-400-normal.woff2) format('woff2')}
@@ -622,3 +622,6 @@ body:has(.livebar) .reveal-bar.floating{bottom:calc(74px + env(safe-area-inset-b
   .gb-card .ui-tile.shape .art-shape{width:64px;height:46px}
   .gb-card .ui-input{font-size:12px;padding:2px 8px}
 }
+.scramble{max-width:100%}
+.scramble .word{flex-wrap:wrap;justify-content:center;max-width:100%}
+@media (max-width:520px){.scramble b{width:26px;height:34px;font-size:18px;border-radius:7px}.scramble .word{gap:3px}}

@@ -621,3 +621,6 @@ body:has(.livebar) .reveal-bar.floating{bottom:calc(74px + env(safe-area-inset-b
   .gb-card .ui-tile.shape .art-shape{width:64px;height:46px}
   .gb-card .ui-input{font-size:12px;padding:2px 8px}
 }
+.scramble{max-width:100%}
+.scramble .word{flex-wrap:wrap;justify-content:center;max-width:100%}
+@media (max-width:520px){.scramble b{width:26px;height:34px;font-size:18px;border-radius:7px}.scramble .word{gap:3px}}
