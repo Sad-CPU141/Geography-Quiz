@@ -171,6 +171,13 @@ function nameField() {
     h('input', { class: 'input', value: S.myName, maxlength: 24, placeholder: 'Name', autocomplete: 'nickname', oninput: (e) => { S.myName = e.target.value.trim(); store.set('gs_name_v1', S.myName); } }));
 }
 
+// Time limits: shown as m:ss; typed as m:ss or seconds.
+const fmtSecs = (x) => Math.floor(x / 60) + ':' + String(x % 60).padStart(2, '0');
+function parseSecs(t) {
+  t = String(t || '').trim(); if (!t) return 0;
+  const m = /^(\d+)\s*[:.]\s*(\d{1,2})$/.exec(t);
+  return m ? +m[1] * 60 + +m[2] : Math.round(+t.replace(/s$/i, '') || 0);
+}
 function setup() {
   const st = S.setup;
   if (S.liveNext) { st.kind = 'board'; st.group = 'live'; } // picking the next round of an online race
@@ -202,28 +209,49 @@ function setup() {
     const toggle = (g) => { if (st.games.includes(g)) st.games = st.games.filter((x) => x !== g); else st.games.push(g); save(); setup(); };
     const cat = GAME_CATS.find((c) => c.id === st.cat) || GAME_CATS[0];
     if (!st.counts || typeof st.counts !== 'object') st.counts = {};
-    // How many questions for this game: "All" (or its normal number) or a smaller/bigger one.
-    // How many for this game: type a number, or leave it empty for Normal (all of the run's countries — e.g.
-    // Oceania = 14 flags — or the game's normal number of rounds).
-    // Country games: empty = all of them ("All 46"; with Mixed 5 it's "All 5"); a number = that many ("10 of 46").
-    // Round games: empty = the usual number ("1 puzzle"); a number = that many ("3 puzzles").
-    const perGame = st.region === 'mixed' && !st.multi && st.kind === 'board' ? Math.min(st.mixN, n) : n;
+    // How many for this game: type a number, or leave it empty for the default.
+    // Country games: empty = all of them ("all 46"; with Mixed 5 it's "all 5"); a number = that many ("10 of 46").
+    // Round games: empty = the usual number ("1 puzzle"), or with Mixed the Mixed number ("5 puzzles").
+    const mixed = st.region === 'mixed' && !st.multi && st.kind === 'board';
+    const perGame = mixed ? Math.min(st.mixN, n) : n;
+    if (!st.limits || typeof st.limits !== 'object') st.limits = {};
     const units = { countries: ['country', 'countries'], rounds: ['round', 'rounds'], puzzles: ['puzzle', 'puzzles'], letters: ['letter', 'letters'], names: ['name', 'names'] };
     const plural = (k, u) => (units[u] ? units[u][k === 1 ? 0 : 1] : u);
+    // How many questions a game will have (for the countdown's suggested time).
+    const unitsOf = (g) => {
+      const c = GAME_COUNTS[g]; if (!c) return perGame;
+      const v = st.counts[g] || 0, def = mixed ? st.mixN : c.def;
+      return !c.def ? (v ? Math.min(v, perGame) : perGame) : Math.min(v || def, g === 'letter' ? 26 : 999);
+    };
+    const secsBox = (k, usual, what) => h('label', { class: 'howmany-row' },
+      h('input', { class: 'howmany secs', type: 'number', inputmode: 'numeric', min: 3, max: 120, placeholder: String(usual), value: st[k] && +st[k] !== usual ? String(st[k]) : '', 'aria-label': 'Seconds per ' + what,
+        onchange: (e) => { const v = Math.round(+e.target.value || 0); if (v >= 3 && v <= 120 && v !== usual) st[k] = v; else delete st[k]; save(); setup(); } }),
+      h('small', null, 's per ' + what));
+    // Countdown style: the time limit for this game, e.g. 1:30 or 90 (seconds). Empty = the suggested time.
+    const limitBox = (g) => {
+      const sug = suggestedLimit({ lrSec: st.lrSec, scSec: st.scSec }, g, unitsOf(g)), v = st.limits[g] || 0;
+      return h('label', { class: 'howmany-row' }, h('span', { 'aria-hidden': 'true' }, '⏳'),
+        h('input', { class: 'howmany limit', type: 'text', inputmode: 'numeric', placeholder: fmtSecs(sug), value: v ? fmtSecs(v) : '', 'aria-label': 'Time limit for ' + gameOf(g).label,
+          onchange: (e) => { const x = parseSecs(e.target.value); if (x >= 5 && x <= 7200 && x !== sug) st.limits[g] = x; else delete st.limits[g]; save(); setup(); } }),
+        h('small', null, v ? 'time limit' : 'suggested'));
+    };
     const howMany = (g) => {
       const c = GAME_COUNTS[g]; if (!c) return null;
-      const byCountry = !c.def, v = st.counts[g] || 0;
-      const box = h('input', { class: 'howmany', type: 'number', inputmode: 'numeric', min: 1, max: 999, placeholder: byCountry ? 'All' : String(c.def), value: v ? String(v) : '', 'aria-label': 'How many ' + c.unit + ' in ' + gameOf(g).label,
+      const byCountry = !c.def, v = st.counts[g] || 0, def = mixed ? st.mixN : c.def;
+      const box = h('input', { class: 'howmany', type: 'number', inputmode: 'numeric', min: 1, max: 999, placeholder: byCountry ? 'All' : String(def), value: v ? String(v) : '', 'aria-label': 'How many ' + c.unit + ' in ' + gameOf(g).label,
         onchange: (e) => { const x = Math.floor(+e.target.value || 0); if (x > 0) st.counts[g] = Math.min(999, x); else delete st.counts[g]; save(); setup(); } });
-      const note = byCountry ? (v ? (v < perGame ? 'of ' + perGame + ' ' + plural(perGame, c.unit) : 'all ' + perGame + ' ' + plural(perGame, c.unit)) : 'all ' + perGame + ' ' + plural(perGame, c.unit))
-        : plural(v || c.def, c.unit);
+      const note = byCountry ? (v && v < perGame ? 'of ' + perGame + ' ' + plural(perGame, c.unit) : 'all ' + perGame + ' ' + plural(perGame, c.unit))
+        : plural(unitsOf(g), c.unit);
       return h('label', { class: 'howmany-row' }, box, h('small', null, note));
     };
+    const extras = (g) => h('span', { class: 'game-extras' }, howMany(g),
+      g === 'letter' ? secsBox('lrSec', LETTER_SEC, 'letter') : g === 'scramble' ? secsBox('scSec', SCRAMBLE_SEC, 'name') : null,
+      st.countdown ? limitBox(g) : null);
     const picked = st.games.map((g, i) => {
       const G = gameOf(g);
       return h('div', { class: 'game-row on', 'data-game': g },
         h('span', { class: 'game-num' }, String(i + 1)),
-        h('span', { class: 'game-txt' }, h('b', null, G.em + ' ' + G.label), howMany(g)),
+        h('span', { class: 'game-txt' }, h('b', null, G.em + ' ' + G.label), extras(g)),
         h('span', { class: 'game-move' },
           st.games.length > 1 ? [h('button', { class: 'iconbtn sm', 'aria-label': 'Move ' + G.label + ' up', disabled: i === 0, onclick: () => move(g, -1) }, '↑'),
             h('button', { class: 'iconbtn sm', 'aria-label': 'Move ' + G.label + ' down', disabled: i === st.games.length - 1, onclick: () => move(g, 1) }, '↓')] : null,
@@ -235,6 +263,8 @@ function setup() {
         h('span', { class: 'game-em', 'aria-hidden': 'true' }, G.em), h('span', { class: 'game-txt' }, h('b', null, G.label), h('small', null, G.desc)), h('span', { class: 'game-tick' }, on ? '✓' : '+'));
     };
     return h('div', { class: 'card' },
+      h('p', { class: 'eyebrow' }, 'Timer'),
+      seg([{ id: false, label: 'Stopwatch', em: '⏱️', sub: 'Fastest wins' }, { id: true, label: 'Countdown', em: '⏳', sub: 'Most done in time' }], !!st.countdown, set('countdown'), 2),
       h('p', { class: 'eyebrow' }, 'Your run'),
       h('div', { class: 'games picked' }, picked),
       h('button', { class: 'btn primary add-games', onclick: () => gameBrowser(st, () => { save(); setup(); }) }, '＋ Add games'));
@@ -250,8 +280,6 @@ function setup() {
       { k: 'langType', label: '⌨️ Languages: type it', on: has('lang'), tip: 'Type the language\'s name instead of picking from 4.' },
       { k: 'strict', label: '🎯 One shot', on: board && (st.games.some((g) => TYPING_GAMES.includes(g)) || (has('lang') && st.langType)), tip: 'Answers only go in when you press Enter. A wrong one is missed and you move on.' },
       { k: 'peek', label: '👀 See what game others are on', on: board && st.group === 'live', invert: true, tip: 'Online: while a friend is still playing you see which game they\'re on (never their score).' },
-      { k: 'lrSec', label: '⏱️ Letter rush seconds', on: has('letter'), num: LETTER_SEC, tip: 'Seconds per letter (normal ' + LETTER_SEC + ').' },
-      { k: 'scSec', label: '⏱️ Unscramble seconds', on: has('scramble'), num: SCRAMBLE_SEC, tip: 'Seconds per name (normal ' + SCRAMBLE_SEC + ').' },
     ].filter((o) => o.on);
     const isOn = (o) => o.num ? !!(st[o.k] && +st[o.k] !== o.num) : o.invert ? st[o.k] !== false : !!st[o.k];
     const row = (o) => {

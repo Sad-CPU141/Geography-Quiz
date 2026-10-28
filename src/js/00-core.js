@@ -58,8 +58,18 @@ const GAME_CATS = [
 ];
 // Per-game "how many" (setup): country games take a number of countries (normal = all of the run's); the others a
 // number of rounds/puzzles/letters (normal = def). opts = the choices offered.
-// Normal timers: Letter rush 12 s per letter, Unscramble 15 s per name (both can be changed in setup).
+// Usual timers: Letter rush 12 s per letter, Unscramble 15 s per name (both can be changed in setup).
 const LETTER_SEC = 12, SCRAMBLE_SEC = 15;
+// ⏳ Countdown style (cfg.countdown): each game gets a time limit instead of a stopwatch — how much can you get
+// done? Suggested seconds per question below (× the game's number of questions, rounded up to 10 s); each game's
+// limit can be changed in setup (cfg.limits[game] = seconds).
+const PER_Q_SEC = { flags: 5, map: 6, capitals: 6, shapes: 6, revcap: 6, mapname: 6, borders: 12, flagmap: 6, duel: 4, lang: 6, chain: 60, all: 5, hot: 90, closer: 5, clues: 40, flagpick: 5, scramble: 0, letter: 0 };
+function suggestedLimit(cfg, g, units) {
+  const per = g === 'letter' ? (cfg.lrSec || LETTER_SEC) + 3 : g === 'scramble' ? (cfg.scSec || SCRAMBLE_SEC) + 2 : PER_Q_SEC[g] || 6;
+  return Math.max(20, Math.ceil(per * Math.max(1, units) / 10) * 10);
+}
+const secUnits = (sec) => (sec.letters ? sec.letters.length : sec.game === 'borders' ? (sec.countries || []).length : sec.ids.length);
+const timeLimit = (cfg, sec) => (cfg.limits && cfg.limits[sec.game] > 0 ? cfg.limits[sec.game] : suggestedLimit(cfg, sec.game, secUnits(sec)));
 const COUNTRY_COUNT_GAMES = ['flags', 'map', 'capitals', 'shapes', 'revcap', 'mapname', 'flagmap', 'all', 'flagpick'];
 const GAME_COUNTS = {
   borders: { def: 0, opts: [5, 10, 20, 30], unit: 'countries' },
@@ -159,11 +169,14 @@ function makeBoard(cfg) {
   return cfg.games.map((g, i) => {
     const r = rng((cfg.seed * 31 + i * 7919 + g.length * 104729) >>> 0);
     // A practice run of your misses brings its own list of countries (cfg.custom[game]).
-    const ids = cfg.custom && cfg.custom[g] ? cfg.custom[g].slice().sort() : cfgPool(cfg, i);
+    // Round games (Bigger country, Guess the language, Border chain…): with Mixed N they pick from the whole
+    // pool and play N rounds (owner: Mixed 1 = 1 question in every game); country games use their N countries.
+    const roundGame = !COUNTRY_COUNT_GAMES.includes(g) && g !== 'borders';
+    const ids = cfg.custom && cfg.custom[g] ? cfg.custom[g].slice().sort() : roundGame && cfg.limit ? cfgPool(cfg) : cfgPool(cfg, i);
     const sec = { game: g, kind: kindOfGame(g), ids: shuffle(ids, r) };
-    // How many questions this game has (setup's per-game number, cfg.counts[game]); 0/none = the normal amount.
+    // How many questions this game has (setup's per-game number, cfg.counts[game]); none = the usual amount.
     const want = cfg.counts && cfg.counts[g] > 0 ? cfg.counts[g] : 0;
-    const N = (normal) => want || normal;
+    const N = (usual) => want || (roundGame && cfg.limit ? cfg.limit : usual);
     if (want && COUNTRY_COUNT_GAMES.includes(g)) sec.ids = sec.ids.slice(0, want);
     if (g === 'borders') {
       // Countries with at least one land neighbour in the game; each neighbour is one answer ("de>fr").
@@ -226,7 +239,7 @@ function makeBoard(cfg) {
       sec.grid = shuffle(sec.ids, r); // the flags in the order they're laid out
     } else if (g === 'lang') {
       // Up to 20 official languages of the region's countries; 4 options each (see langOptions).
-      const here = new Set(cfgPool(cfg, i));
+      const here = new Set(sec.ids);
       // A region with under 10 languages (the Americas) also gets their other sentences, up to 10 rounds.
       const langs = LANGS.filter((l) => l.countries.some((c) => here.has(c)));
       // Each language once, with one of its sentences picked at random (so you can't learn "this sentence = X").
@@ -396,6 +409,12 @@ function withOpts(cfg, o) {
   const secs = (v, def) => { const n = Math.round(+v || 0); return n >= 3 && n <= 120 && n !== def ? n : 0; };
   if (cfg.kind === 'board' && cfg.games.includes('letter') && o && secs(o.lrSec, LETTER_SEC)) cfg.lrSec = secs(o.lrSec, LETTER_SEC); else delete cfg.lrSec;
   if (cfg.kind === 'board' && cfg.games.includes('scramble') && o && secs(o.scSec, SCRAMBLE_SEC)) cfg.scSec = secs(o.scSec, SCRAMBLE_SEC); else delete cfg.scSec;
+  if (cfg.kind === 'board' && o && o.countdown) {
+    cfg.countdown = true;
+    const lim = {};
+    if (o.limits) cfg.games.forEach((g) => { const v = Math.round(+o.limits[g] || 0); if (v >= 5 && v <= 7200) lim[g] = v; });
+    if (Object.keys(lim).length) cfg.limits = lim; else delete cfg.limits;
+  } else { delete cfg.countdown; delete cfg.limits; }
   // Per-game numbers, only for games in the run (and only real ones).
   const counts = {};
   if (cfg.kind === 'board' && o && o.counts) cfg.games.forEach((g) => { const n = Math.floor(+o.counts[g] || 0); if (n > 0 && n < 1000) counts[g] = n; });
@@ -404,7 +423,7 @@ function withOpts(cfg, o) {
 }
 // Where (after the "+" too): R<mask> = several continents (bit i = CONTINENTS[i]), C<n> = n random countries.
 const regionMask = (cfg) => (cfg.regions || []).reduce((m, r) => m | (1 << CONTINENTS.indexOf(r)), 0);
-const optLetters = (cfg) => (cfg.hard ? 'N' : '') + (cfg.langType ? 'T' : '') + (cfg.strict ? 'E' : '') + (cfg.allMap ? 'A' : '') + (cfg.regions && cfg.regions.length ? 'R' + regionMask(cfg) : '') + (cfg.limit ? 'C' + cfg.limit : '') + (cfg.counts ? 'Q' + cfg.games.map((g) => cfg.counts[g] || 0).join('.') : '') + (cfg.lrSec ? 'L' + cfg.lrSec : '') + (cfg.scSec ? 'U' + cfg.scSec : '') + (cfg.kind === 'quick' && MODES.findIndex((x) => x.id === cfg.mode) > 3 ? 'M' + MODES.findIndex((x) => x.id === cfg.mode) : '');
+const optLetters = (cfg) => (cfg.hard ? 'N' : '') + (cfg.langType ? 'T' : '') + (cfg.strict ? 'E' : '') + (cfg.allMap ? 'A' : '') + (cfg.regions && cfg.regions.length ? 'R' + regionMask(cfg) : '') + (cfg.limit ? 'C' + cfg.limit : '') + (cfg.counts ? 'Q' + cfg.games.map((g) => cfg.counts[g] || 0).join('.') : '') + (cfg.countdown ? 'D' + (cfg.limits ? 'K' + cfg.games.map((g) => cfg.limits[g] || 0).join('.') : '') : '') + (cfg.lrSec ? 'L' + cfg.lrSec : '') + (cfg.scSec ? 'U' + cfg.scSec : '') + (cfg.kind === 'quick' && MODES.findIndex((x) => x.id === cfg.mode) > 3 ? 'M' + MODES.findIndex((x) => x.id === cfg.mode) : '');
 // Several continents / a random number: tidy into the canonical form (1 continent → region; all 6 → world).
 function withWhere(cfg, regions, limit) {
   delete cfg.regions; delete cfg.limit;
@@ -442,9 +461,11 @@ function decodeCode(text) {
   }
   const mm = /M(\d)/.exec(f);
   if (mm && cfg.kind === 'quick' && MODES[+mm[1]]) cfg.mode = MODES[+mm[1]].id;
+  const kk = /K([\d.]+)/.exec(f), limits = {};
+  if (kk) kk[1].split('.').forEach((n, k) => { if (cfg.games && cfg.games[k] && +n > 0) limits[cfg.games[k]] = +n; });
   const q = /Q([\d.]+)/.exec(f), counts = {};
   if (q) q[1].split('.').forEach((n, k) => { if (cfg.games && cfg.games[k] && +n > 0) counts[cfg.games[k]] = +n; });
-  return withOpts(cfg, { hard: /N/.test(f), langType: /T/.test(f), strict: /E/.test(f), allMap: /A/.test(f), counts, lrSec: (/L(\d+)/.exec(f) || [])[1], scSec: (/U(\d+)/.exec(f) || [])[1] });
+  return withOpts(cfg, { hard: /N/.test(f), langType: /T/.test(f), strict: /E/.test(f), allMap: /A/.test(f), counts, lrSec: (/L(\d+)/.exec(f) || [])[1], scSec: (/U(\d+)/.exec(f) || [])[1], countdown: /D/.test(f), limits });
 }
 function decodeBase(text) {
   const t = String(text || '').toUpperCase().replace(/[IL]/g, '1').replace(/O/g, '0').replace(/[^0-9A-Z]/g, '');
@@ -498,7 +519,7 @@ function whereLabel(cfg) {
 }
 function cfgTotal(cfg) { return cfg.kind === 'board' ? makeBoard(cfg).reduce((n, sec) => n + sec.ids.length, 0) : cfg.count; }
 function cfgLabel(cfg) {
-  if (cfg.kind === 'board') return cfg.games.map((g) => gameOf(g).label + (cfg.counts && cfg.counts[g] ? ' ×' + cfg.counts[g] : '')).join(' + ') + ' · ' + (cfg.custom ? 'My misses' : whereLabel(cfg)) + (cfg.hard ? ' · No borders' : '') + (cfg.langType ? ' · Typed' : '') + (cfg.strict ? ' · One shot' : '') + (cfg.allMap ? ' · All countries' : '') + (cfg.lrSec ? ' · Letters ' + cfg.lrSec + 's' : '') + (cfg.scSec ? ' · Unscramble ' + cfg.scSec + 's' : '') + (cfg.help ? ' · Spelling help' : '');
+  if (cfg.kind === 'board') return cfg.games.map((g) => gameOf(g).label + (cfg.counts && cfg.counts[g] ? ' ×' + cfg.counts[g] : '')).join(' + ') + ' · ' + (cfg.custom ? 'My misses' : whereLabel(cfg)) + (cfg.hard ? ' · No borders' : '') + (cfg.langType ? ' · Typed' : '') + (cfg.strict ? ' · One shot' : '') + (cfg.allMap ? ' · All countries' : '') + (cfg.countdown ? ' · Countdown' : '') + (cfg.lrSec ? ' · Letters ' + cfg.lrSec + 's' : '') + (cfg.scSec ? ' · Unscramble ' + cfg.scSec + 's' : '') + (cfg.help ? ' · Spelling help' : '');
   return [modeOf(cfg.mode).label, whereLabel(cfg), cfg.count === cfgPool(cfg).length ? 'All ' + cfg.count : String(cfg.count), styleOf(cfg.style).label].join(' · ') + ' · Quick';
 }
 const bestKey = (cfg) => cfg.kind === 'board' ? ['b', cfg.games.join('+'), cfg.region].join('|') + (optLetters(cfg) ? '|' + optLetters(cfg) : '') : [cfg.mode, cfg.region, cfg.count, cfg.style].join('|') + (optLetters(cfg) ? '|' + optLetters(cfg) : '');
@@ -541,8 +562,9 @@ function spellings(kind) {
 // Returns up to 2 equally close suggestions, nearest in length first: [{ id, text }], or [] when nothing is close.
 function suggest(typed, kind) {
   const n = norm(typed);
-  if (n.length < 4) return [];
-  const max = n.length >= 12 ? 3 : n.length >= 7 ? 2 : 1;
+  if (n.length < 3) return [];
+  // A bit more forgiving than before (owner found it too strict): 1 letter off for short names, 2 from 6 letters, 3 from 10.
+  const max = n.length >= 10 ? 3 : n.length >= 6 ? 2 : 1;
   let bestD = max + 1, hits = [];
   for (const [s, id] of spellings(kind)) {
     if (s === n) return []; // already spelled right (for some country)
@@ -588,7 +610,7 @@ function dailyCfg(day) {
 }
 const dayLabel = (day) => new Date(day * 86400000).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
 
-window.GS = { LETTER_SEC, SCRAMBLE_SEC, GAME_COUNTS, COUNTRY_COUNT_GAMES, km, bearing, closerOf, hops, shortestRoute, CURRENCY_COUNT, DEMONYM_COUNT, GAME_CATS, NEEDS_MAP, withWhere, cfgPool, whereLabel, CONTINENTS, withOpts, langAnswer, langsReady, langOf, langText, recordMisses, topMisses, todayNum, dailyCfg, duelWinner, GAMES, suggest, editDistance, norm, isRight, answersFor, makeRun, makeBoard, encodeCode, decodeCode, fmtTime, pool, rng, better, compare, GAME_ORDERS, cfgLabel, DATA };
+window.GS = { timeLimit, suggestedLimit, PER_Q_SEC, LETTER_SEC, SCRAMBLE_SEC, GAME_COUNTS, COUNTRY_COUNT_GAMES, km, bearing, closerOf, hops, shortestRoute, CURRENCY_COUNT, DEMONYM_COUNT, GAME_CATS, NEEDS_MAP, withWhere, cfgPool, whereLabel, CONTINENTS, withOpts, langAnswer, langsReady, langOf, langText, recordMisses, topMisses, todayNum, dailyCfg, duelWinner, GAMES, suggest, editDistance, norm, isRight, answersFor, makeRun, makeBoard, encodeCode, decodeCode, fmtTime, pool, rng, better, compare, GAME_ORDERS, cfgLabel, DATA };
 Object.defineProperty(window.GS, 'LANGS', { get: () => (langsReady(), LANGS) });
 Object.defineProperty(window.GS, 'LANG_BY', { get: () => (langsReady(), LANG_BY) });
 if (window.GS_NO_UI) return;

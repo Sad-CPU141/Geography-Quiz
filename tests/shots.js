@@ -234,6 +234,44 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await ctx.close();
   }
 
+  // Countdown style: each game gets a time limit (suggested, changeable); when it runs out the rest is missed.
+  for (const [W, H] of only && only !== 'countdown' ? [] : [[360, 780], [1920, 1080]]) {
+    const ctx = await b.newContext({ viewport: { width: W, height: H } });
+    const page = await ctx.newPage();
+    const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(BASE);
+    await setupBoard(page, ['Flags', 'Hot or cold'], 'Oceania');
+    ok(!(await page.$('.game-row input.limit')), 'countdown: no limit boxes with the stopwatch');
+    await page.click('.opt:has-text("Countdown")');
+    const ph = await page.$$eval('.game-row input.limit', (e) => e.map((x) => x.placeholder));
+    ok(ph.length === 2 && ph[0] === '1:10' && ph[1] === '1:30', 'countdown: suggested limits (' + ph.join(', ') + ')');
+    await page.fill('.game-row[data-game="flags"] input.limit', '0:08'); await page.locator('.game-row[data-game="flags"] input.limit').blur(); await page.waitForTimeout(150);
+    ok(await page.inputValue('.game-row[data-game="flags"] input.limit') === '0:08', 'countdown: limit changed to 0:08');
+    await page.click('.opt:has-text("Mixed")'); await page.fill('.mixn', '3'); await page.locator('.mixn').blur(); await page.waitForTimeout(150);
+    const notes = await page.$$eval('.game-row .howmany-row small', (e) => e.map((x) => x.textContent));
+    const hotPh = await page.getAttribute('.game-row[data-game="hot"] input.howmany:not(.limit)', 'placeholder');
+    ok(notes.includes('all 3 countries') && hotPh === '3', 'mixed 3: flags "all 3 countries", Hot or cold 3 (' + notes.join(' | ') + ' · ' + hotPh + ')');
+    await noSideScroll(page, 'countdown setup ' + W);
+    await page.screenshot({ path: path.join(outDir, 'countdown-setup-' + W + '.png'), fullPage: true });
+    await page.click('.opt:has-text("Oceania")');
+    await page.click('button.btn.primary:has-text("Start")');
+    ok(/Countdown/.test(await page.textContent('.topbar')), 'countdown: in the run name');
+    await page.click('button:has-text("Go")');
+    await page.waitForTimeout(400);
+    const t1 = await page.textContent('.timer');
+    ok(/⏳ [5-8]$/.test(t1), 'countdown: timer counts down (' + t1 + ')');
+    await page.waitForSelector('.reveal-bar button', { timeout: 12000 });
+    ok(/Time's up/.test(await page.textContent('.timer')), "countdown: time's up shown");
+    await page.screenshot({ path: path.join(outDir, 'countdown-timeup-' + W + '.png') });
+    await page.click('.reveal-bar button');
+    await page.waitForTimeout(500);
+    const t2 = await page.textContent('.timer');
+    ok(/⏳ 1:(2\d|30)/.test(t2), 'countdown: next game has its own limit (' + t2 + ')');
+    ok(errors.length === 0, 'countdown: no page errors ' + JSON.stringify(errors));
+    await ctx.close();
+  }
+  if (only === 'countdown') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }
+
   // New versions: when version.json says there's a newer build, the home screen reloads once; in the middle of a
   // run nothing happens until you go home.
   if (!only || only === 'update') {
@@ -368,7 +406,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
       await page.goto(BASE);
       await setupBoard(page, [label[g]], 'Europe');
       // Games that are 1 round normally: ask for 3 so we can play two and still be in the game.
-      if (await page.evaluate((g) => window.GS.GAME_COUNTS[g].def === 1, g)) { await page.fill('.picked .howmany', '3'); await page.locator('.picked .howmany').blur(); await page.waitForTimeout(120); }
+      if (await page.evaluate((g) => window.GS.GAME_COUNTS[g].def === 1, g)) { await page.fill('.picked .howmany:not(.secs):not(.limit)', '3'); await page.locator('.picked .howmany:not(.secs):not(.limit)').blur(); await page.waitForTimeout(120); }
       await page.click('button.btn.primary:has-text("Start")'); await page.click('button:has-text("Go")');
       await page.waitForSelector('.found', { timeout: 8000 });
       await page.waitForTimeout(400);
@@ -536,9 +574,10 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     ok(names.length === 3 && /Spelling help/.test(names[0]) && /Practice/.test(names[1]) && /One shot/.test(names[2]), 'options: Spelling help + Practice always, then the active one, above the fold-out (' + names.join(', ') + ')');
     await page.click('.optrow:has-text("One shot") .opt-q');
     ok(await page.isVisible('.opt-tip:has-text("Enter")'), 'options: ? explains it');
-    await page.click('.card:has(.eyebrow:text-is("Options")) .more-toggle[aria-expanded="false"]');
-    await page.fill('.optrow:has-text("Letter rush seconds") input', '20'); await page.locator('.optrow:has-text("Letter rush seconds") input').blur(); await page.waitForTimeout(150);
-    ok(/Letters 20s/.test(await page.evaluate(() => document.body.textContent)) || (await page.$('.card:has(.eyebrow:text-is("Options")) > .optwrap:has-text("Letter rush seconds")')) !== null, 'options: a changed timer moves up with the active ones');
+    // Letter rush's seconds are in its own row in "Your run" (not in Options).
+    ok(!(await page.$('.optrow:has-text("Letter rush seconds")')) && await page.$('.game-row[data-game="letter"] input.secs') !== null, 'letter rush seconds: in its row, not in Options');
+    await page.fill('.game-row[data-game="letter"] input.secs', '20'); await page.locator('.game-row[data-game="letter"] input.secs').blur(); await page.waitForTimeout(150);
+    ok(await page.inputValue('.game-row[data-game="letter"] input.secs') === '20' && (await page.evaluate(() => JSON.parse(localStorage.getItem('gs_setup_v2')).lrSec)) === 20, 'letter rush seconds: changed to 20');
     await page.screenshot({ path: path.join(outDir, 'options.png'), fullPage: true });
     await ctx.close();
   }

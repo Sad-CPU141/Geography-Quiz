@@ -201,8 +201,7 @@ function borderKm(a, b) {
   const key = a < b ? a + b : b + a;
   if (BORDER_KM[key] != null) return BORDER_KM[key];
   if (BY_ID[a].nb.includes(b)) return (BORDER_KM[key] = 0);
-  const pts = (id) => { const g = globeFeature(id).geometry, out = []; (g.type === 'Polygon' ? [g.coordinates] : g.coordinates).forEach((p) => p[0].forEach((q) => out.push(q))); return out; };
-  const pa = pts(a), pb = pts(b), R = Math.PI / 180;
+  const pa = homePoints(a), pb = homePoints(b), R = Math.PI / 180;
   let best = Infinity;
   for (const [x1, y1] of pa) {
     const c1 = Math.cos(y1 * R);
@@ -212,6 +211,26 @@ function borderKm(a, b) {
     }
   }
   return (BORDER_KM[key] = Math.round(2 * 6371 * Math.asin(Math.sqrt(best)) / 10) * 10);
+}
+// A country's own land for distances: its biggest piece plus pieces within ~1,000 km of it — so overseas
+// territories don't count as the country (owner: French Guiana is its own thing, so France isn't "bordering" Brazil;
+// same for Hawaii, the Canaries…). Kaliningrad, Alaska, Corsica and Svalbard stay with their country.
+const HOME_PTS = {};
+function homePoints(id) {
+  if (HOME_PTS[id]) return HOME_PTS[id];
+  const g = globeFeature(id).geometry, polys = (g.type === 'Polygon' ? [g.coordinates] : g.coordinates).map((p) => p[0]);
+  if (polys.length === 1) return (HOME_PTS[id] = polys[0]);
+  const area = (ring) => d3.geoArea({ type: 'Polygon', coordinates: [ring] });
+  const big = polys.reduce((x, y) => (area(y) > area(x) ? y : x));
+  const R = Math.PI / 180, near = (p, q) => { // closest points of two rings within 1,000 km?
+    for (const [x1, y1] of p) for (const [x2, y2] of q) {
+      const hv = Math.sin((y2 - y1) * R / 2) ** 2 + Math.cos(y1 * R) * Math.cos(y2 * R) * Math.sin((x2 - x1) * R / 2) ** 2;
+      if (2 * 6371 * Math.asin(Math.sqrt(hv)) < 1000) return true;
+    }
+    return false;
+  };
+  const keep = polys.filter((p) => p === big || near(p, big));
+  return (HOME_PTS[id] = [].concat(...keep));
 }
 const GLOBE_HEAT = [[0, '#7f0000'], [250, '#b30000'], [750, '#d7301f'], [1500, '#ef6548'], [2500, '#fc8d59'], [4000, '#fdbb84'], [6000, '#fdd49e'], [Infinity, '#fff3dc']];
 const globeColour = (d) => GLOBE_HEAT.find(([max]) => d <= max)[1];

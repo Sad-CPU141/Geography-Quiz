@@ -1,7 +1,7 @@
-/* Geography Speedrun 219e3f6825 — built from src/js/ by build.js. Edit src/, not this file. */
+/* Geography Speedrun 2f6799b5bf — built from src/js/ by build.js. Edit src/, not this file. */
 (function () {
 'use strict';
-const APP_VERSION = "219e3f6825";
+const APP_VERSION = "2f6799b5bf";
 /* ---- core: data, answer matching, runs, challenge codes (no DOM; tested by tests/run.js) ---- */
 const DATA = window.GS_DATA.countries;
 const BY_ID = Object.fromEntries(DATA.map((c) => [c.id, c]));
@@ -62,8 +62,18 @@ const GAME_CATS = [
 ];
 // Per-game "how many" (setup): country games take a number of countries (normal = all of the run's); the others a
 // number of rounds/puzzles/letters (normal = def). opts = the choices offered.
-// Normal timers: Letter rush 12 s per letter, Unscramble 15 s per name (both can be changed in setup).
+// Usual timers: Letter rush 12 s per letter, Unscramble 15 s per name (both can be changed in setup).
 const LETTER_SEC = 12, SCRAMBLE_SEC = 15;
+// ⏳ Countdown style (cfg.countdown): each game gets a time limit instead of a stopwatch — how much can you get
+// done? Suggested seconds per question below (× the game's number of questions, rounded up to 10 s); each game's
+// limit can be changed in setup (cfg.limits[game] = seconds).
+const PER_Q_SEC = { flags: 5, map: 6, capitals: 6, shapes: 6, revcap: 6, mapname: 6, borders: 12, flagmap: 6, duel: 4, lang: 6, chain: 60, all: 5, hot: 90, closer: 5, clues: 40, flagpick: 5, scramble: 0, letter: 0 };
+function suggestedLimit(cfg, g, units) {
+  const per = g === 'letter' ? (cfg.lrSec || LETTER_SEC) + 3 : g === 'scramble' ? (cfg.scSec || SCRAMBLE_SEC) + 2 : PER_Q_SEC[g] || 6;
+  return Math.max(20, Math.ceil(per * Math.max(1, units) / 10) * 10);
+}
+const secUnits = (sec) => (sec.letters ? sec.letters.length : sec.game === 'borders' ? (sec.countries || []).length : sec.ids.length);
+const timeLimit = (cfg, sec) => (cfg.limits && cfg.limits[sec.game] > 0 ? cfg.limits[sec.game] : suggestedLimit(cfg, sec.game, secUnits(sec)));
 const COUNTRY_COUNT_GAMES = ['flags', 'map', 'capitals', 'shapes', 'revcap', 'mapname', 'flagmap', 'all', 'flagpick'];
 const GAME_COUNTS = {
   borders: { def: 0, opts: [5, 10, 20, 30], unit: 'countries' },
@@ -163,11 +173,14 @@ function makeBoard(cfg) {
   return cfg.games.map((g, i) => {
     const r = rng((cfg.seed * 31 + i * 7919 + g.length * 104729) >>> 0);
     // A practice run of your misses brings its own list of countries (cfg.custom[game]).
-    const ids = cfg.custom && cfg.custom[g] ? cfg.custom[g].slice().sort() : cfgPool(cfg, i);
+    // Round games (Bigger country, Guess the language, Border chain…): with Mixed N they pick from the whole
+    // pool and play N rounds (owner: Mixed 1 = 1 question in every game); country games use their N countries.
+    const roundGame = !COUNTRY_COUNT_GAMES.includes(g) && g !== 'borders';
+    const ids = cfg.custom && cfg.custom[g] ? cfg.custom[g].slice().sort() : roundGame && cfg.limit ? cfgPool(cfg) : cfgPool(cfg, i);
     const sec = { game: g, kind: kindOfGame(g), ids: shuffle(ids, r) };
-    // How many questions this game has (setup's per-game number, cfg.counts[game]); 0/none = the normal amount.
+    // How many questions this game has (setup's per-game number, cfg.counts[game]); none = the usual amount.
     const want = cfg.counts && cfg.counts[g] > 0 ? cfg.counts[g] : 0;
-    const N = (normal) => want || normal;
+    const N = (usual) => want || (roundGame && cfg.limit ? cfg.limit : usual);
     if (want && COUNTRY_COUNT_GAMES.includes(g)) sec.ids = sec.ids.slice(0, want);
     if (g === 'borders') {
       // Countries with at least one land neighbour in the game; each neighbour is one answer ("de>fr").
@@ -230,7 +243,7 @@ function makeBoard(cfg) {
       sec.grid = shuffle(sec.ids, r); // the flags in the order they're laid out
     } else if (g === 'lang') {
       // Up to 20 official languages of the region's countries; 4 options each (see langOptions).
-      const here = new Set(cfgPool(cfg, i));
+      const here = new Set(sec.ids);
       // A region with under 10 languages (the Americas) also gets their other sentences, up to 10 rounds.
       const langs = LANGS.filter((l) => l.countries.some((c) => here.has(c)));
       // Each language once, with one of its sentences picked at random (so you can't learn "this sentence = X").
@@ -400,6 +413,12 @@ function withOpts(cfg, o) {
   const secs = (v, def) => { const n = Math.round(+v || 0); return n >= 3 && n <= 120 && n !== def ? n : 0; };
   if (cfg.kind === 'board' && cfg.games.includes('letter') && o && secs(o.lrSec, LETTER_SEC)) cfg.lrSec = secs(o.lrSec, LETTER_SEC); else delete cfg.lrSec;
   if (cfg.kind === 'board' && cfg.games.includes('scramble') && o && secs(o.scSec, SCRAMBLE_SEC)) cfg.scSec = secs(o.scSec, SCRAMBLE_SEC); else delete cfg.scSec;
+  if (cfg.kind === 'board' && o && o.countdown) {
+    cfg.countdown = true;
+    const lim = {};
+    if (o.limits) cfg.games.forEach((g) => { const v = Math.round(+o.limits[g] || 0); if (v >= 5 && v <= 7200) lim[g] = v; });
+    if (Object.keys(lim).length) cfg.limits = lim; else delete cfg.limits;
+  } else { delete cfg.countdown; delete cfg.limits; }
   // Per-game numbers, only for games in the run (and only real ones).
   const counts = {};
   if (cfg.kind === 'board' && o && o.counts) cfg.games.forEach((g) => { const n = Math.floor(+o.counts[g] || 0); if (n > 0 && n < 1000) counts[g] = n; });
@@ -408,7 +427,7 @@ function withOpts(cfg, o) {
 }
 // Where (after the "+" too): R<mask> = several continents (bit i = CONTINENTS[i]), C<n> = n random countries.
 const regionMask = (cfg) => (cfg.regions || []).reduce((m, r) => m | (1 << CONTINENTS.indexOf(r)), 0);
-const optLetters = (cfg) => (cfg.hard ? 'N' : '') + (cfg.langType ? 'T' : '') + (cfg.strict ? 'E' : '') + (cfg.allMap ? 'A' : '') + (cfg.regions && cfg.regions.length ? 'R' + regionMask(cfg) : '') + (cfg.limit ? 'C' + cfg.limit : '') + (cfg.counts ? 'Q' + cfg.games.map((g) => cfg.counts[g] || 0).join('.') : '') + (cfg.lrSec ? 'L' + cfg.lrSec : '') + (cfg.scSec ? 'U' + cfg.scSec : '') + (cfg.kind === 'quick' && MODES.findIndex((x) => x.id === cfg.mode) > 3 ? 'M' + MODES.findIndex((x) => x.id === cfg.mode) : '');
+const optLetters = (cfg) => (cfg.hard ? 'N' : '') + (cfg.langType ? 'T' : '') + (cfg.strict ? 'E' : '') + (cfg.allMap ? 'A' : '') + (cfg.regions && cfg.regions.length ? 'R' + regionMask(cfg) : '') + (cfg.limit ? 'C' + cfg.limit : '') + (cfg.counts ? 'Q' + cfg.games.map((g) => cfg.counts[g] || 0).join('.') : '') + (cfg.countdown ? 'D' + (cfg.limits ? 'K' + cfg.games.map((g) => cfg.limits[g] || 0).join('.') : '') : '') + (cfg.lrSec ? 'L' + cfg.lrSec : '') + (cfg.scSec ? 'U' + cfg.scSec : '') + (cfg.kind === 'quick' && MODES.findIndex((x) => x.id === cfg.mode) > 3 ? 'M' + MODES.findIndex((x) => x.id === cfg.mode) : '');
 // Several continents / a random number: tidy into the canonical form (1 continent → region; all 6 → world).
 function withWhere(cfg, regions, limit) {
   delete cfg.regions; delete cfg.limit;
@@ -446,9 +465,11 @@ function decodeCode(text) {
   }
   const mm = /M(\d)/.exec(f);
   if (mm && cfg.kind === 'quick' && MODES[+mm[1]]) cfg.mode = MODES[+mm[1]].id;
+  const kk = /K([\d.]+)/.exec(f), limits = {};
+  if (kk) kk[1].split('.').forEach((n, k) => { if (cfg.games && cfg.games[k] && +n > 0) limits[cfg.games[k]] = +n; });
   const q = /Q([\d.]+)/.exec(f), counts = {};
   if (q) q[1].split('.').forEach((n, k) => { if (cfg.games && cfg.games[k] && +n > 0) counts[cfg.games[k]] = +n; });
-  return withOpts(cfg, { hard: /N/.test(f), langType: /T/.test(f), strict: /E/.test(f), allMap: /A/.test(f), counts, lrSec: (/L(\d+)/.exec(f) || [])[1], scSec: (/U(\d+)/.exec(f) || [])[1] });
+  return withOpts(cfg, { hard: /N/.test(f), langType: /T/.test(f), strict: /E/.test(f), allMap: /A/.test(f), counts, lrSec: (/L(\d+)/.exec(f) || [])[1], scSec: (/U(\d+)/.exec(f) || [])[1], countdown: /D/.test(f), limits });
 }
 function decodeBase(text) {
   const t = String(text || '').toUpperCase().replace(/[IL]/g, '1').replace(/O/g, '0').replace(/[^0-9A-Z]/g, '');
@@ -502,7 +523,7 @@ function whereLabel(cfg) {
 }
 function cfgTotal(cfg) { return cfg.kind === 'board' ? makeBoard(cfg).reduce((n, sec) => n + sec.ids.length, 0) : cfg.count; }
 function cfgLabel(cfg) {
-  if (cfg.kind === 'board') return cfg.games.map((g) => gameOf(g).label + (cfg.counts && cfg.counts[g] ? ' ×' + cfg.counts[g] : '')).join(' + ') + ' · ' + (cfg.custom ? 'My misses' : whereLabel(cfg)) + (cfg.hard ? ' · No borders' : '') + (cfg.langType ? ' · Typed' : '') + (cfg.strict ? ' · One shot' : '') + (cfg.allMap ? ' · All countries' : '') + (cfg.lrSec ? ' · Letters ' + cfg.lrSec + 's' : '') + (cfg.scSec ? ' · Unscramble ' + cfg.scSec + 's' : '') + (cfg.help ? ' · Spelling help' : '');
+  if (cfg.kind === 'board') return cfg.games.map((g) => gameOf(g).label + (cfg.counts && cfg.counts[g] ? ' ×' + cfg.counts[g] : '')).join(' + ') + ' · ' + (cfg.custom ? 'My misses' : whereLabel(cfg)) + (cfg.hard ? ' · No borders' : '') + (cfg.langType ? ' · Typed' : '') + (cfg.strict ? ' · One shot' : '') + (cfg.allMap ? ' · All countries' : '') + (cfg.countdown ? ' · Countdown' : '') + (cfg.lrSec ? ' · Letters ' + cfg.lrSec + 's' : '') + (cfg.scSec ? ' · Unscramble ' + cfg.scSec + 's' : '') + (cfg.help ? ' · Spelling help' : '');
   return [modeOf(cfg.mode).label, whereLabel(cfg), cfg.count === cfgPool(cfg).length ? 'All ' + cfg.count : String(cfg.count), styleOf(cfg.style).label].join(' · ') + ' · Quick';
 }
 const bestKey = (cfg) => cfg.kind === 'board' ? ['b', cfg.games.join('+'), cfg.region].join('|') + (optLetters(cfg) ? '|' + optLetters(cfg) : '') : [cfg.mode, cfg.region, cfg.count, cfg.style].join('|') + (optLetters(cfg) ? '|' + optLetters(cfg) : '');
@@ -545,8 +566,9 @@ function spellings(kind) {
 // Returns up to 2 equally close suggestions, nearest in length first: [{ id, text }], or [] when nothing is close.
 function suggest(typed, kind) {
   const n = norm(typed);
-  if (n.length < 4) return [];
-  const max = n.length >= 12 ? 3 : n.length >= 7 ? 2 : 1;
+  if (n.length < 3) return [];
+  // A bit more forgiving than before (owner found it too strict): 1 letter off for short names, 2 from 6 letters, 3 from 10.
+  const max = n.length >= 10 ? 3 : n.length >= 6 ? 2 : 1;
   let bestD = max + 1, hits = [];
   for (const [s, id] of spellings(kind)) {
     if (s === n) return []; // already spelled right (for some country)
@@ -592,7 +614,7 @@ function dailyCfg(day) {
 }
 const dayLabel = (day) => new Date(day * 86400000).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
 
-window.GS = { LETTER_SEC, SCRAMBLE_SEC, GAME_COUNTS, COUNTRY_COUNT_GAMES, km, bearing, closerOf, hops, shortestRoute, CURRENCY_COUNT, DEMONYM_COUNT, GAME_CATS, NEEDS_MAP, withWhere, cfgPool, whereLabel, CONTINENTS, withOpts, langAnswer, langsReady, langOf, langText, recordMisses, topMisses, todayNum, dailyCfg, duelWinner, GAMES, suggest, editDistance, norm, isRight, answersFor, makeRun, makeBoard, encodeCode, decodeCode, fmtTime, pool, rng, better, compare, GAME_ORDERS, cfgLabel, DATA };
+window.GS = { timeLimit, suggestedLimit, PER_Q_SEC, LETTER_SEC, SCRAMBLE_SEC, GAME_COUNTS, COUNTRY_COUNT_GAMES, km, bearing, closerOf, hops, shortestRoute, CURRENCY_COUNT, DEMONYM_COUNT, GAME_CATS, NEEDS_MAP, withWhere, cfgPool, whereLabel, CONTINENTS, withOpts, langAnswer, langsReady, langOf, langText, recordMisses, topMisses, todayNum, dailyCfg, duelWinner, GAMES, suggest, editDistance, norm, isRight, answersFor, makeRun, makeBoard, encodeCode, decodeCode, fmtTime, pool, rng, better, compare, GAME_ORDERS, cfgLabel, DATA };
 Object.defineProperty(window.GS, 'LANGS', { get: () => (langsReady(), LANGS) });
 Object.defineProperty(window.GS, 'LANG_BY', { get: () => (langsReady(), LANG_BY) });
 if (window.GS_NO_UI) return;
@@ -770,6 +792,13 @@ function nameField() {
     h('input', { class: 'input', value: S.myName, maxlength: 24, placeholder: 'Name', autocomplete: 'nickname', oninput: (e) => { S.myName = e.target.value.trim(); store.set('gs_name_v1', S.myName); } }));
 }
 
+// Time limits: shown as m:ss; typed as m:ss or seconds.
+const fmtSecs = (x) => Math.floor(x / 60) + ':' + String(x % 60).padStart(2, '0');
+function parseSecs(t) {
+  t = String(t || '').trim(); if (!t) return 0;
+  const m = /^(\d+)\s*[:.]\s*(\d{1,2})$/.exec(t);
+  return m ? +m[1] * 60 + +m[2] : Math.round(+t.replace(/s$/i, '') || 0);
+}
 function setup() {
   const st = S.setup;
   if (S.liveNext) { st.kind = 'board'; st.group = 'live'; } // picking the next round of an online race
@@ -801,28 +830,49 @@ function setup() {
     const toggle = (g) => { if (st.games.includes(g)) st.games = st.games.filter((x) => x !== g); else st.games.push(g); save(); setup(); };
     const cat = GAME_CATS.find((c) => c.id === st.cat) || GAME_CATS[0];
     if (!st.counts || typeof st.counts !== 'object') st.counts = {};
-    // How many questions for this game: "All" (or its normal number) or a smaller/bigger one.
-    // How many for this game: type a number, or leave it empty for Normal (all of the run's countries — e.g.
-    // Oceania = 14 flags — or the game's normal number of rounds).
-    // Country games: empty = all of them ("All 46"; with Mixed 5 it's "All 5"); a number = that many ("10 of 46").
-    // Round games: empty = the usual number ("1 puzzle"); a number = that many ("3 puzzles").
-    const perGame = st.region === 'mixed' && !st.multi && st.kind === 'board' ? Math.min(st.mixN, n) : n;
+    // How many for this game: type a number, or leave it empty for the default.
+    // Country games: empty = all of them ("all 46"; with Mixed 5 it's "all 5"); a number = that many ("10 of 46").
+    // Round games: empty = the usual number ("1 puzzle"), or with Mixed the Mixed number ("5 puzzles").
+    const mixed = st.region === 'mixed' && !st.multi && st.kind === 'board';
+    const perGame = mixed ? Math.min(st.mixN, n) : n;
+    if (!st.limits || typeof st.limits !== 'object') st.limits = {};
     const units = { countries: ['country', 'countries'], rounds: ['round', 'rounds'], puzzles: ['puzzle', 'puzzles'], letters: ['letter', 'letters'], names: ['name', 'names'] };
     const plural = (k, u) => (units[u] ? units[u][k === 1 ? 0 : 1] : u);
+    // How many questions a game will have (for the countdown's suggested time).
+    const unitsOf = (g) => {
+      const c = GAME_COUNTS[g]; if (!c) return perGame;
+      const v = st.counts[g] || 0, def = mixed ? st.mixN : c.def;
+      return !c.def ? (v ? Math.min(v, perGame) : perGame) : Math.min(v || def, g === 'letter' ? 26 : 999);
+    };
+    const secsBox = (k, usual, what) => h('label', { class: 'howmany-row' },
+      h('input', { class: 'howmany secs', type: 'number', inputmode: 'numeric', min: 3, max: 120, placeholder: String(usual), value: st[k] && +st[k] !== usual ? String(st[k]) : '', 'aria-label': 'Seconds per ' + what,
+        onchange: (e) => { const v = Math.round(+e.target.value || 0); if (v >= 3 && v <= 120 && v !== usual) st[k] = v; else delete st[k]; save(); setup(); } }),
+      h('small', null, 's per ' + what));
+    // Countdown style: the time limit for this game, e.g. 1:30 or 90 (seconds). Empty = the suggested time.
+    const limitBox = (g) => {
+      const sug = suggestedLimit({ lrSec: st.lrSec, scSec: st.scSec }, g, unitsOf(g)), v = st.limits[g] || 0;
+      return h('label', { class: 'howmany-row' }, h('span', { 'aria-hidden': 'true' }, '⏳'),
+        h('input', { class: 'howmany limit', type: 'text', inputmode: 'numeric', placeholder: fmtSecs(sug), value: v ? fmtSecs(v) : '', 'aria-label': 'Time limit for ' + gameOf(g).label,
+          onchange: (e) => { const x = parseSecs(e.target.value); if (x >= 5 && x <= 7200 && x !== sug) st.limits[g] = x; else delete st.limits[g]; save(); setup(); } }),
+        h('small', null, v ? 'time limit' : 'suggested'));
+    };
     const howMany = (g) => {
       const c = GAME_COUNTS[g]; if (!c) return null;
-      const byCountry = !c.def, v = st.counts[g] || 0;
-      const box = h('input', { class: 'howmany', type: 'number', inputmode: 'numeric', min: 1, max: 999, placeholder: byCountry ? 'All' : String(c.def), value: v ? String(v) : '', 'aria-label': 'How many ' + c.unit + ' in ' + gameOf(g).label,
+      const byCountry = !c.def, v = st.counts[g] || 0, def = mixed ? st.mixN : c.def;
+      const box = h('input', { class: 'howmany', type: 'number', inputmode: 'numeric', min: 1, max: 999, placeholder: byCountry ? 'All' : String(def), value: v ? String(v) : '', 'aria-label': 'How many ' + c.unit + ' in ' + gameOf(g).label,
         onchange: (e) => { const x = Math.floor(+e.target.value || 0); if (x > 0) st.counts[g] = Math.min(999, x); else delete st.counts[g]; save(); setup(); } });
-      const note = byCountry ? (v ? (v < perGame ? 'of ' + perGame + ' ' + plural(perGame, c.unit) : 'all ' + perGame + ' ' + plural(perGame, c.unit)) : 'all ' + perGame + ' ' + plural(perGame, c.unit))
-        : plural(v || c.def, c.unit);
+      const note = byCountry ? (v && v < perGame ? 'of ' + perGame + ' ' + plural(perGame, c.unit) : 'all ' + perGame + ' ' + plural(perGame, c.unit))
+        : plural(unitsOf(g), c.unit);
       return h('label', { class: 'howmany-row' }, box, h('small', null, note));
     };
+    const extras = (g) => h('span', { class: 'game-extras' }, howMany(g),
+      g === 'letter' ? secsBox('lrSec', LETTER_SEC, 'letter') : g === 'scramble' ? secsBox('scSec', SCRAMBLE_SEC, 'name') : null,
+      st.countdown ? limitBox(g) : null);
     const picked = st.games.map((g, i) => {
       const G = gameOf(g);
       return h('div', { class: 'game-row on', 'data-game': g },
         h('span', { class: 'game-num' }, String(i + 1)),
-        h('span', { class: 'game-txt' }, h('b', null, G.em + ' ' + G.label), howMany(g)),
+        h('span', { class: 'game-txt' }, h('b', null, G.em + ' ' + G.label), extras(g)),
         h('span', { class: 'game-move' },
           st.games.length > 1 ? [h('button', { class: 'iconbtn sm', 'aria-label': 'Move ' + G.label + ' up', disabled: i === 0, onclick: () => move(g, -1) }, '↑'),
             h('button', { class: 'iconbtn sm', 'aria-label': 'Move ' + G.label + ' down', disabled: i === st.games.length - 1, onclick: () => move(g, 1) }, '↓')] : null,
@@ -834,6 +884,8 @@ function setup() {
         h('span', { class: 'game-em', 'aria-hidden': 'true' }, G.em), h('span', { class: 'game-txt' }, h('b', null, G.label), h('small', null, G.desc)), h('span', { class: 'game-tick' }, on ? '✓' : '+'));
     };
     return h('div', { class: 'card' },
+      h('p', { class: 'eyebrow' }, 'Timer'),
+      seg([{ id: false, label: 'Stopwatch', em: '⏱️', sub: 'Fastest wins' }, { id: true, label: 'Countdown', em: '⏳', sub: 'Most done in time' }], !!st.countdown, set('countdown'), 2),
       h('p', { class: 'eyebrow' }, 'Your run'),
       h('div', { class: 'games picked' }, picked),
       h('button', { class: 'btn primary add-games', onclick: () => gameBrowser(st, () => { save(); setup(); }) }, '＋ Add games'));
@@ -849,8 +901,6 @@ function setup() {
       { k: 'langType', label: '⌨️ Languages: type it', on: has('lang'), tip: 'Type the language\'s name instead of picking from 4.' },
       { k: 'strict', label: '🎯 One shot', on: board && (st.games.some((g) => TYPING_GAMES.includes(g)) || (has('lang') && st.langType)), tip: 'Answers only go in when you press Enter. A wrong one is missed and you move on.' },
       { k: 'peek', label: '👀 See what game others are on', on: board && st.group === 'live', invert: true, tip: 'Online: while a friend is still playing you see which game they\'re on (never their score).' },
-      { k: 'lrSec', label: '⏱️ Letter rush seconds', on: has('letter'), num: LETTER_SEC, tip: 'Seconds per letter (normal ' + LETTER_SEC + ').' },
-      { k: 'scSec', label: '⏱️ Unscramble seconds', on: has('scramble'), num: SCRAMBLE_SEC, tip: 'Seconds per name (normal ' + SCRAMBLE_SEC + ').' },
     ].filter((o) => o.on);
     const isOn = (o) => o.num ? !!(st[o.k] && +st[o.k] !== o.num) : o.invert ? st[o.k] !== false : !!st[o.k];
     const row = (o) => {
@@ -1197,10 +1247,16 @@ function makeClock() {
   c.resume = () => { if (c.pauseAt != null) { c.paused += performance.now() - c.pauseAt; c.pauseAt = null; } };
   // Every element with class "timer" on screen shows this clock (plus any penalty).
   c.extra = () => 0;
+  // Countdown style: c.left() gives the time left in this game (ms), or null for the usual stopwatch.
+  c.left = () => null;
   const loop = () => {
     if (c.over) return;
-    const practice = S.session && S.session.practice;
-    document.querySelectorAll('.timer').forEach((t) => { t.textContent = practice ? 'Practice' : fmtTime(c.elapsed() + c.extra()); t.classList.toggle('paused', c.pauseAt != null); t.classList.toggle('practice', !!practice); });
+    const practice = S.session && S.session.practice, left = c.left();
+    if (left != null && left <= 0 && c.pauseAt == null && c.onTimeUp) { const f = c.onTimeUp; c.onTimeUp = null; f(); }
+    document.querySelectorAll('.timer').forEach((t) => {
+      t.textContent = practice ? 'Practice' : left != null ? left <= 0 ? "⏳ Time's up" : '⏳ ' + fmtTime(Math.ceil(Math.max(0, left) / 1000) * 1000).replace(/\.\d+$/, '') : fmtTime(c.elapsed() + c.extra());
+      t.classList.toggle('paused', c.pauseAt != null); t.classList.toggle('practice', !!practice); t.classList.toggle('low', left != null && left < 10000);
+    });
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);
@@ -1250,6 +1306,13 @@ function playSection(R) {
   };
   // A game with nothing to ask (e.g. no country in the run has a unique currency) is skipped.
   if (!sec.ids.length) { nextSection(R); return; }
+  // Countdown style: this game has its own time limit; when it runs out, what's left counts as missed.
+  if (se.cfg.countdown && !se.practice) {
+    const limit = timeLimit(se.cfg, sec) * 1000, from = R.clock.elapsed();
+    res.limit = limit / 1000;
+    R.clock.left = () => limit - (R.clock.elapsed() - from);
+    R.clock.onTimeUp = () => { if (R.results[R.sec] === res && !res.gaveUp) timeUp(R, api); };
+  } else { R.clock.left = () => null; R.clock.onTimeUp = null; }
   const UI = { borders: bordersGame, duel: duelGame, lang: langGame, chain: chainGame, hot: hotGame, closer: closerGame, clues: cluesGame,
     letter: letterGame, scramble: scrambleGame, currency: currencyGame, flagpick: flagpickGame };
   api.ui = MAP_GAMES.has(sec.game) ? mapGame(api) : (UI[sec.game] || gridGame)(api);
@@ -1272,6 +1335,14 @@ function reveal(R, api, endAll) {
     for (let i = R.sec + 1; i < se.board.length; i++) { const s = se.board[i]; R.results[i] = { game: s.game, kind: s.kind, ids: s.ids, found: [], missed: s.ids.slice(), gaveUp: true, skipped: true, tries: {} }; }
   }
   const last = endAll || R.sec >= se.board.length - 1;
+  api.ui.reveal(h('button', { class: 'btn primary small', onclick: () => { R.clock.resume(); if (last) finishBoard(R); else { R.sec++; playSection(R); } } },
+    last ? 'See results →' : 'Next: ' + gameOf(se.board[R.sec + 1].game).label + ' →'));
+}
+function timeUp(R, api) {
+  const se = S.session, res = api.res, last = R.sec >= se.board.length - 1;
+  R.clock.pause();
+  res.gaveUp = true; res.timeUp = true;
+  res.missed = res.ids.filter((id) => !res.found.includes(id));
   api.ui.reveal(h('button', { class: 'btn primary small', onclick: () => { R.clock.resume(); if (last) finishBoard(R); else { R.sec++; playSection(R); } } },
     last ? 'See results →' : 'Next: ' + gameOf(se.board[R.sec + 1].game).label + ' →'));
 }
@@ -2407,8 +2478,7 @@ function borderKm(a, b) {
   const key = a < b ? a + b : b + a;
   if (BORDER_KM[key] != null) return BORDER_KM[key];
   if (BY_ID[a].nb.includes(b)) return (BORDER_KM[key] = 0);
-  const pts = (id) => { const g = globeFeature(id).geometry, out = []; (g.type === 'Polygon' ? [g.coordinates] : g.coordinates).forEach((p) => p[0].forEach((q) => out.push(q))); return out; };
-  const pa = pts(a), pb = pts(b), R = Math.PI / 180;
+  const pa = homePoints(a), pb = homePoints(b), R = Math.PI / 180;
   let best = Infinity;
   for (const [x1, y1] of pa) {
     const c1 = Math.cos(y1 * R);
@@ -2418,6 +2488,26 @@ function borderKm(a, b) {
     }
   }
   return (BORDER_KM[key] = Math.round(2 * 6371 * Math.asin(Math.sqrt(best)) / 10) * 10);
+}
+// A country's own land for distances: its biggest piece plus pieces within ~1,000 km of it — so overseas
+// territories don't count as the country (owner: French Guiana is its own thing, so France isn't "bordering" Brazil;
+// same for Hawaii, the Canaries…). Kaliningrad, Alaska, Corsica and Svalbard stay with their country.
+const HOME_PTS = {};
+function homePoints(id) {
+  if (HOME_PTS[id]) return HOME_PTS[id];
+  const g = globeFeature(id).geometry, polys = (g.type === 'Polygon' ? [g.coordinates] : g.coordinates).map((p) => p[0]);
+  if (polys.length === 1) return (HOME_PTS[id] = polys[0]);
+  const area = (ring) => d3.geoArea({ type: 'Polygon', coordinates: [ring] });
+  const big = polys.reduce((x, y) => (area(y) > area(x) ? y : x));
+  const R = Math.PI / 180, near = (p, q) => { // closest points of two rings within 1,000 km?
+    for (const [x1, y1] of p) for (const [x2, y2] of q) {
+      const hv = Math.sin((y2 - y1) * R / 2) ** 2 + Math.cos(y1 * R) * Math.cos(y2 * R) * Math.sin((x2 - x1) * R / 2) ** 2;
+      if (2 * 6371 * Math.asin(Math.sqrt(hv)) < 1000) return true;
+    }
+    return false;
+  };
+  const keep = polys.filter((p) => p === big || near(p, big));
+  return (HOME_PTS[id] = [].concat(...keep));
 }
 const GLOBE_HEAT = [[0, '#7f0000'], [250, '#b30000'], [750, '#d7301f'], [1500, '#ef6548'], [2500, '#fc8d59'], [4000, '#fdbb84'], [6000, '#fdd49e'], [Infinity, '#fff3dc']];
 const globeColour = (d) => GLOBE_HEAT.find(([max]) => d <= max)[1];
@@ -2761,7 +2851,7 @@ async function share(cfg, score) {
 // What you missed, per game.
 function missedBoard(sec) {
   const G = gameOf(sec.game);
-  const head = h('p', { class: 'eyebrow' }, G.em + ' ' + G.label + ' · ' + sec.found.length + '/' + sec.ids.length + (sec.skipped ? ' (not played)' : sec.gaveUp ? ' (gave up)' : ''));
+  const head = h('p', { class: 'eyebrow' }, G.em + ' ' + G.label + ' · ' + sec.found.length + '/' + sec.ids.length + (sec.skipped ? ' (not played)' : sec.timeUp ? " (time's up)" : sec.gaveUp ? ' (gave up)' : ''));
   // Map: how many were right on the first tap.
   const first = (sec.game === 'map' || sec.game === 'flagmap') && sec.found.length ? sec.found.filter((id) => !(sec.tries && sec.tries[id])).length : null;
   const firstLine = first != null ? h('p', { class: 'small muted' }, '🎯 First tap right: ' + first + '/' + sec.ids.length + ' (' + Math.round(first / sec.ids.length * 100) + '%)') : null;
@@ -3208,7 +3298,7 @@ function liveCfg(cfg, st) {
 function liveNextRound() {
   NET.update('rooms/' + LIVE.code, { picking: true }).catch(() => {});
   if (LIVE.room && LIVE.room.cfg) {
-    const c = LIVE.room.cfg; Object.assign(S.setup, { kind: 'board', games: c.games.slice(), help: !!c.help, hard: !!c.hard, langType: !!c.langType, strict: !!c.strict, allMap: !!c.allMap, peek: !c.noPeek, counts: Object.assign({}, c.counts || {}) });
+    const c = LIVE.room.cfg; Object.assign(S.setup, { kind: 'board', games: c.games.slice(), help: !!c.help, hard: !!c.hard, langType: !!c.langType, strict: !!c.strict, allMap: !!c.allMap, peek: !c.noPeek, counts: Object.assign({}, c.counts || {}), countdown: !!c.countdown, limits: Object.assign({}, c.limits || {}), lrSec: c.lrSec, scSec: c.scSec });
     if (c.regions) Object.assign(S.setup, { multi: true, regions: c.regions.slice() });
     else Object.assign(S.setup, { multi: false, region: c.limit ? 'mixed' : c.region }, c.limit ? { mixN: c.limit } : {});
   }
@@ -3272,6 +3362,6 @@ checkUpdate();
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkUpdate(); });
 setInterval(checkUpdate, 600000);
 // For the browser tests: the current session (read-only).
-try { Object.defineProperty(window.GS, 'session', { get: () => S.session }); window.GS.cluesFor = cluesFor; } catch (e) { /* already there */ }
+try { Object.defineProperty(window.GS, 'session', { get: () => S.session }); window.GS.cluesFor = cluesFor; window.GS.borderKm = borderKm; window.GS.needAssets = needAssets; } catch (e) { /* already there */ }
 
 })();

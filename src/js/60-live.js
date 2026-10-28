@@ -342,7 +342,7 @@ function liveCfg(cfg, st) {
 function liveNextRound() {
   NET.update('rooms/' + LIVE.code, { picking: true }).catch(() => {});
   if (LIVE.room && LIVE.room.cfg) {
-    const c = LIVE.room.cfg; Object.assign(S.setup, { kind: 'board', games: c.games.slice(), help: !!c.help, hard: !!c.hard, langType: !!c.langType, strict: !!c.strict, allMap: !!c.allMap, peek: !c.noPeek, counts: Object.assign({}, c.counts || {}) });
+    const c = LIVE.room.cfg; Object.assign(S.setup, { kind: 'board', games: c.games.slice(), help: !!c.help, hard: !!c.hard, langType: !!c.langType, strict: !!c.strict, allMap: !!c.allMap, peek: !c.noPeek, counts: Object.assign({}, c.counts || {}), countdown: !!c.countdown, limits: Object.assign({}, c.limits || {}), lrSec: c.lrSec, scSec: c.scSec });
     if (c.regions) Object.assign(S.setup, { multi: true, regions: c.regions.slice() });
     else Object.assign(S.setup, { multi: false, region: c.limit ? 'mixed' : c.region }, c.limit ? { mixN: c.limit } : {});
   }

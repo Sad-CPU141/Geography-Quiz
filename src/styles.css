@@ -624,3 +624,14 @@ body:has(.livebar) .reveal-bar.floating{bottom:calc(74px + env(safe-area-inset-b
 .scramble{max-width:100%}
 .scramble .word{flex-wrap:wrap;justify-content:center;max-width:100%}
 @media (max-width:520px){.scramble b{width:26px;height:34px;font-size:18px;border-radius:7px}.scramble .word{gap:3px}}
+.timer.low{color:var(--danger)}
+.game-extras{display:flex;flex-wrap:wrap;gap:4px 12px}
+.howmany.limit{width:64px;text-align:center}
+/* Your run rows: number · name · arrows on top, the boxes (how many, seconds, time limit) on a line below */
+.games.picked .game-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;column-gap:10px;row-gap:6px;align-items:center}
+.games.picked .game-txt{display:contents}
+.games.picked .game-num{grid-column:1;grid-row:1}
+.games.picked .game-txt>b{grid-column:2;grid-row:1}
+.games.picked .game-move{grid-column:3;grid-row:1}
+.games.picked .game-extras{grid-column:2/4;grid-row:2}
+.howmany-row small{white-space:nowrap}

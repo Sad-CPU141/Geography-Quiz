@@ -205,6 +205,11 @@ const lm = GS.makeBoard(GS.withWhere({ kind: 'board', games: ['letter'], region:
 ok(lm.letters[0].ids.length === GS.DATA.filter((c) => GS.norm(c.name)[0].toUpperCase() === lm.letters[0].L).length, 'letter rush + Mixed: every country in the world with that letter counts');
 const le = GS.makeBoard(GS.withWhere({ kind: 'board', games: ['letter'], region: 'world', seed: 7 }, ['Europe', 'Africa']))[0];
 ok(le.letters[0].ids.every((id) => ['Europe', 'Africa'].includes(GS.DATA.find((c) => c.id === id).region)), 'letter rush + several continents: only those continents count');
+// Mixed 1: one question in every game, round games included (owner: languages gave 10).
+const m1 = GS.makeBoard(GS.withWhere({ kind: 'board', games: ['flags', 'lang', 'duel', 'closer', 'chain', 'letter', 'scramble', 'hot', 'clues'], region: 'world', seed: 31 }, [], 1));
+ok(m1.every((sec) => (sec.game === 'letter' ? sec.letters.length : sec.ids.length) === 1), 'Mixed 1: every game has 1 question (' + m1.map((x) => x.game + ':' + (x.letters ? x.letters.length : x.ids.length)).join(' ') + ')');
+const m5 = GS.makeBoard(GS.withWhere({ kind: 'board', games: ['lang', 'duel', 'closer'], region: 'world', seed: 32 }, [], 5));
+ok(m5.every((sec) => sec.ids.length === 5), 'Mixed 5: round games have 5 rounds');
 // Timers in the code.
 const tc = GS.withOpts({ kind: 'board', games: ['letter', 'scramble'], region: 'world', seed: 3 }, { lrSec: 20, scSec: 8 });
 ok(/L20U8/.test(GS.encodeCode(tc)) && GS.decodeCode(GS.encodeCode(tc)).lrSec === 20 && GS.decodeCode(GS.encodeCode(tc)).scSec === 8 && !GS.withOpts({ kind: 'board', games: ['letter'], region: 'world', seed: 3 }, { lrSec: 12 }).lrSec, 'letter/unscramble timers in the code (normal = left out)');
@@ -288,6 +293,19 @@ const all = GS.makeRun({ kind: 'quick', mode: 'flags', region: 'world', style: '
 ok(all.length === 196 && new Set(all.map((q) => q.id)).size === 196, 'all 196');
 const oc = GS.makeRun({ kind: 'quick', mode: 'capitals', region: 'Oceania', style: 'pick', count: 14, seed: 9 });
 ok(oc.every((q) => GS.DATA.find((c) => c.id === q.id).region === 'Oceania'), 'region filter');
+
+// Countdown style: in the code, per-game limits round-trip, suggested limits scale with the number of questions.
+{
+  const cd = GS.withOpts({ kind: 'board', games: ['flags', 'hot', 'letter'], region: 'Europe', seed: 7 }, { countdown: true, limits: { hot: 120, flags: 3 } });
+  ok(cd.countdown === true && cd.limits.hot === 120 && !('flags' in cd.limits), 'countdown: limits kept (too-short ones dropped)');
+  const back = GS.decodeCode(GS.encodeCode(cd));
+  ok(back.countdown === true && back.limits && back.limits.hot === 120 && Object.keys(back.limits).length === 1, 'countdown: code round trip ' + GS.encodeCode(cd));
+  const plain = GS.decodeCode(GS.encodeCode(GS.withOpts({ kind: 'board', games: ['flags'], region: 'Europe', seed: 7 }, { countdown: true })));
+  ok(plain.countdown === true && !plain.limits, 'countdown without limits');
+  ok(!GS.decodeCode(GS.encodeCode({ kind: 'board', games: ['flags'], region: 'Europe', seed: 7 })).countdown, 'no countdown by default');
+  ok(GS.suggestedLimit({}, 'flags', 46) === 230 && GS.suggestedLimit({}, 'hot', 1) === 90 && GS.suggestedLimit({}, 'flags', 1) === 20, 'suggested limits');
+  ok(GS.timeLimit({ limits: { hot: 45 } }, { game: 'hot', ids: ['x'] }) === 45 && GS.timeLimit({}, { game: 'letter', ids: [], letters: [1, 2] }) === 30, 'time limit per section');
+}
 
 ok(GS.fmtTime(102345) === '1:42.3' && GS.fmtTime(9050) === '9.1' && GS.fmtTime(60000) === '1:00.0', 'time format');
 console.log(pass + ' passed, ' + fail + ' failed');

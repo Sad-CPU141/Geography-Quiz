@@ -9,6 +9,7 @@ A Game Night game: geography against the clock.
   - Map: the whole map; it names a country and you tap it (3 tries, then you have to tap the right one). Small islands have rings to tap. Pinch or scroll to zoom.
   - Give up any time to see what you missed. Most found wins; the faster time breaks a tie.
 - **More games** (in a fold-out): Reverse Capitals, Map: name it, Borders, Flag → Map, Bigger country, Guess the language, Border chain, Name them all, Hot or cold, Closer or further, Clue reveal, Letter rush, Unscramble, Flag finder — picked from a game browser with pictures, and you can set how many questions each game has. Mix them into any run.
+- **Timer**: a stopwatch (fastest wins) or a countdown — each game gets a suggested time limit you can change, and you see how much you get done.
 - **Options:** Map with no borders (hard mode), and typing the language instead of picking it.
 - **Online head to head:** your win–loss record against each friend you race.
 - **Daily run** on the home page: the same run for everyone each day, with your score and streak.

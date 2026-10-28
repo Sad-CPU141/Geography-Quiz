@@ -106,10 +106,16 @@ function makeClock() {
   c.resume = () => { if (c.pauseAt != null) { c.paused += performance.now() - c.pauseAt; c.pauseAt = null; } };
   // Every element with class "timer" on screen shows this clock (plus any penalty).
   c.extra = () => 0;
+  // Countdown style: c.left() gives the time left in this game (ms), or null for the usual stopwatch.
+  c.left = () => null;
   const loop = () => {
     if (c.over) return;
-    const practice = S.session && S.session.practice;
-    document.querySelectorAll('.timer').forEach((t) => { t.textContent = practice ? 'Practice' : fmtTime(c.elapsed() + c.extra()); t.classList.toggle('paused', c.pauseAt != null); t.classList.toggle('practice', !!practice); });
+    const practice = S.session && S.session.practice, left = c.left();
+    if (left != null && left <= 0 && c.pauseAt == null && c.onTimeUp) { const f = c.onTimeUp; c.onTimeUp = null; f(); }
+    document.querySelectorAll('.timer').forEach((t) => {
+      t.textContent = practice ? 'Practice' : left != null ? left <= 0 ? "⏳ Time's up" : '⏳ ' + fmtTime(Math.ceil(Math.max(0, left) / 1000) * 1000).replace(/\.\d+$/, '') : fmtTime(c.elapsed() + c.extra());
+      t.classList.toggle('paused', c.pauseAt != null); t.classList.toggle('practice', !!practice); t.classList.toggle('low', left != null && left < 10000);
+    });
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);
@@ -159,6 +165,13 @@ function playSection(R) {
   };
   // A game with nothing to ask (e.g. no country in the run has a unique currency) is skipped.
   if (!sec.ids.length) { nextSection(R); return; }
+  // Countdown style: this game has its own time limit; when it runs out, what's left counts as missed.
+  if (se.cfg.countdown && !se.practice) {
+    const limit = timeLimit(se.cfg, sec) * 1000, from = R.clock.elapsed();
+    res.limit = limit / 1000;
+    R.clock.left = () => limit - (R.clock.elapsed() - from);
+    R.clock.onTimeUp = () => { if (R.results[R.sec] === res && !res.gaveUp) timeUp(R, api); };
+  } else { R.clock.left = () => null; R.clock.onTimeUp = null; }
   const UI = { borders: bordersGame, duel: duelGame, lang: langGame, chain: chainGame, hot: hotGame, closer: closerGame, clues: cluesGame,
     letter: letterGame, scramble: scrambleGame, currency: currencyGame, flagpick: flagpickGame };
   api.ui = MAP_GAMES.has(sec.game) ? mapGame(api) : (UI[sec.game] || gridGame)(api);
@@ -181,6 +194,14 @@ function reveal(R, api, endAll) {
     for (let i = R.sec + 1; i < se.board.length; i++) { const s = se.board[i]; R.results[i] = { game: s.game, kind: s.kind, ids: s.ids, found: [], missed: s.ids.slice(), gaveUp: true, skipped: true, tries: {} }; }
   }
   const last = endAll || R.sec >= se.board.length - 1;
+  api.ui.reveal(h('button', { class: 'btn primary small', onclick: () => { R.clock.resume(); if (last) finishBoard(R); else { R.sec++; playSection(R); } } },
+    last ? 'See results →' : 'Next: ' + gameOf(se.board[R.sec + 1].game).label + ' →'));
+}
+function timeUp(R, api) {
+  const se = S.session, res = api.res, last = R.sec >= se.board.length - 1;
+  R.clock.pause();
+  res.gaveUp = true; res.timeUp = true;
+  res.missed = res.ids.filter((id) => !res.found.includes(id));
   api.ui.reveal(h('button', { class: 'btn primary small', onclick: () => { R.clock.resume(); if (last) finishBoard(R); else { R.sec++; playSection(R); } } },
     last ? 'See results →' : 'Next: ' + gameOf(se.board[R.sec + 1].game).label + ' →'));
 }
