@@ -1,0 +1,2 @@
+qrcode.js: qrcode-generator 1.4.4 by Kazuhiko Arase, MIT licence.
+jsQR.js: jsQR 1.4.0 by Cosmo Wolfe, Apache License 2.0.

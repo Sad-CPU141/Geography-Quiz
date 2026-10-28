@@ -11,3 +11,4 @@ The country list is the UN member states except Israel (left out by the owner), 
 Where a country has more than one capital or a separate seat of government (e.g. Bolivia, South Africa, Netherlands, Sri Lanka, Malaysia, Benin, Ivory Coast, Tanzania, Eswatini, Palestine), each of them is accepted.
 
 - **Online race:** Firebase JavaScript SDK (Google), Apache License 2.0, self-hosted in `vendor/firebase/` (see `NOTICE.txt`).
+- **QR codes:** qrcode-generator by Kazuhiko Arase (MIT) and jsQR by Cosmo Wolfe (Apache 2.0), self-hosted in `vendor/qr/`.

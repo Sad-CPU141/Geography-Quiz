@@ -92,28 +92,92 @@ async function liveCreate(cfg) {
   toast('Couldn\'t make a room. Try again.'); setup();
 }
 
-// Everyone else: type the code (or open the link).
-function liveJoinScreen(prefill) {
-  let inp;
-  const go = async () => {
-    const code = (inp.value || '').toUpperCase().replace(/[^A-Z]/g, '');
-    if (code.length !== 5) return toast('Codes are 5 letters');
-    if (!S.myName) return toast('Add your name first');
-    if (!(await liveReady())) return;
-    let room;
-    try { room = await NET.get(code); } catch (e) { return toast('Couldn\'t connect. Check your internet.'); }
-    if (!room) return toast('Room not found');
-    if (room.state === 'play' && !(room.players && room.players[NET.uid()])) return toast('That race has started');
-    await NET.update('rooms/' + code + '/players/' + NET.uid(), { name: myName(), joined: NET.now(), gone: null });
-    liveLobby(code);
+// The Online screen (home → 🌐 Online): host a match, join one (code, link or QR), or play a challenge code.
+async function liveJoin(code) {
+  code = String(code || '').toUpperCase().replace(/[^A-Z]/g, '');
+  if (code.length !== 5) return toast('Room codes are 5 letters');
+  if (!S.myName) return toast('Add your name first');
+  if (!(await liveReady())) return;
+  let room;
+  try { room = await NET.get(code); } catch (e) { return toast('Couldn\'t connect. Check your internet.'); }
+  if (!room) return toast('Room not found');
+  if (room.state === 'play' && !(room.players && room.players[NET.uid()])) return toast('That race has started');
+  await NET.update('rooms/' + code + '/players/' + NET.uid(), { name: myName(), joined: NET.now(), gone: null });
+  liveLobby(code);
+}
+function onlineHub(prefill) {
+  if (typeof prefill !== 'string') prefill = '';
+  let room, chal, chalInfo;
+  const playChallenge = () => {
+    const cfg = decodeCode(chal.value);
+    if (!cfg) return toast('Code not found');
+    startSession(cfg, [S.myName || 'You'], null);
   };
-  mount(h('div', { class: 'app' }, topbar('Online race', home),
-    h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Room code'),
-      inp = h('input', { class: 'input code', style: { fontSize: '30px' }, placeholder: 'ABCDE', maxlength: 5, value: prefill || '', autocapitalize: 'characters', autocomplete: 'off', spellcheck: 'false', onkeydown: (e) => { if (e.key === 'Enter') go(); } }),
-      nameField()),
-    h('button', { class: 'btn primary', onclick: go }, '🌐 Join'),
-    h('p', { class: 'small muted center' }, 'Making a room: New run → Online')));
-  if (!prefill) inp.focus();
+  const checkChal = () => { const cfg = decodeCode(chal.value); chalInfo.textContent = cfg ? '✓ ' + cfgLabel(cfg) : ''; };
+  mount(h('div', { class: 'app', 'data-screen': 'online' }, topbar('Online', home),
+    nameField(),
+    h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Host a match'),
+      h('button', { class: 'btn primary', onclick: () => { if (!S.myName) return toast('Add your name first'); S.setup.kind = 'board'; S.setup.group = 'live'; store.set('gs_setup_v2', S.setup); setup(); } }, '🌐 Host match')),
+    h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Join a match'),
+      room = h('input', { class: 'input code', style: { fontSize: '30px' }, placeholder: 'ABCDE', maxlength: 5, value: prefill, autocapitalize: 'characters', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Room code', onkeydown: (e) => { if (e.key === 'Enter') liveJoin(room.value); } }),
+      h('div', { class: 'row' },
+        h('button', { class: 'btn ghost small', onclick: () => scanQR((code) => { room.value = code; liveJoin(code); }) }, '📷 Scan QR'),
+        h('button', { class: 'btn primary small', onclick: () => liveJoin(room.value) }, 'Join'))),
+    h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Challenge code'),
+      chal = h('input', { class: 'input code', style: { fontSize: '24px' }, placeholder: 'ABCD-1234', maxlength: 20, autocapitalize: 'characters', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Challenge code', oninput: () => checkChal(), onkeydown: (e) => { if (e.key === 'Enter') playChallenge(); } }),
+      chalInfo = h('p', { class: 'small muted' }),
+      h('button', { class: 'btn ghost small', onclick: playChallenge }, '▶ Play'))));
+}
+// Kept for old links/buttons.
+const liveJoinScreen = (code) => onlineHub(code);
+
+/* ---------------- QR codes ---------------- */
+// Draw a QR code (dark on white so any phone camera can read it).
+async function qrSvg(text) {
+  if (!window.qrcode) await loadScript('vendor/qr/qrcode.js');
+  const qr = window.qrcode(0, 'M'); qr.addData(text); qr.make();
+  const n = qr.getModuleCount(), m = 2;
+  let d = '';
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) d += 'M' + (c + m) + ' ' + (r + m) + 'h1v1h-1z';
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 ' + (n + 2 * m) + ' ' + (n + 2 * m)); svg.setAttribute('class', 'qr'); svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', 'QR code to join');
+  svg.innerHTML = '<rect width="100%" height="100%" fill="#fff"/><path d="' + d + '" fill="#0f0c21" shape-rendering="crispEdges"/>';
+  return svg;
+}
+// Scan a QR code with the camera; calls back with the room code.
+async function scanQR(onCode) {
+  const video = h('video', { class: 'scan-video', playsinline: true, muted: true, autoplay: true });
+  const msg = h('p', { class: 'small muted center' }, 'Point at the QR code');
+  let stream = null, done = false;
+  const stop = () => { done = true; if (stream) stream.getTracks().forEach((t) => t.stop()); bg.remove(); };
+  const bg = modal(h('p', { class: 'eyebrow' }, 'Scan to join'), video, msg, h('button', { class: 'btn ghost small', onclick: stop }, 'Cancel'));
+  try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false }); }
+  catch (e) { msg.textContent = 'Camera not available. Type the code instead.'; return; }
+  video.srcObject = stream; video.play().catch(() => {});
+  const detector = 'BarcodeDetector' in window ? new window.BarcodeDetector({ formats: ['qr_code'] }) : null;
+  if (!detector && !window.jsQR) { try { await loadScript('vendor/qr/jsQR.js'); } catch (e) { msg.textContent = 'Scanner didn\'t load. Type the code instead.'; return; } }
+  const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const found = (text) => {
+    const m = /[?&]room=([A-Za-z]{5})/.exec(text || '') || /^\s*([A-Za-z]{5})\s*$/.exec(text || '');
+    if (!m) { msg.textContent = 'That QR code isn\'t a room'; return false; }
+    stop(); onCode(m[1].toUpperCase()); return true;
+  };
+  const tick = async () => {
+    if (!done && !document.body.contains(bg)) stop(); // closed by tapping outside
+    if (done) return;
+    if (video.readyState >= 2) {
+      try {
+        if (detector) { const r = await detector.detect(video); if (r[0] && found(r[0].rawValue)) return; }
+        else {
+          canvas.width = video.videoWidth; canvas.height = video.videoHeight; ctx.drawImage(video, 0, 0);
+          const r = window.jsQR(ctx.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height);
+          if (r && found(r.data)) return;
+        }
+      } catch (e) { /* try the next frame */ }
+    }
+    setTimeout(tick, 200);
+  };
+  tick();
 }
 
 function liveLink(code) { return location.origin + location.pathname + '?room=' + code; }
@@ -125,10 +189,15 @@ function liveLobby(code) {
   const startBtn = h('button', { class: 'btn primary', onclick: () => liveStartRound() }, '▶ Start race');
   const wait = h('p', { class: 'muted center' }, 'Waiting for the host…');
   const what = h('p', { class: 'muted center' });
+  const qrBox = h('div', { class: 'qrbox' });
   mount(h('div', { class: 'app' }, topbar('Online race', () => { liveStop(); home(); }),
     h('div', { class: 'center stack', style: { gap: '4px' } }, h('p', { class: 'eyebrow' }, 'Room'), h('div', { class: 'code roomcode' }, code), what),
-    h('button', { class: 'btn ghost small', onclick: () => shareRoom(code) }, '📤 Invite'),
+    qrBox,
+    h('div', { class: 'linkrow' }, h('input', { class: 'input', readonly: true, value: liveLink(code), 'aria-label': 'Join link', onfocus: (e) => e.target.select() }),
+      h('button', { class: 'btn ghost small', onclick: async () => { try { await navigator.clipboard.writeText(liveLink(code)); toast('Link copied'); } catch (e) { prompt('Copy the link:', liveLink(code)); } } }, 'Copy')),
+    h('button', { class: 'btn ghost small', onclick: () => shareRoom(code) }, '📤 Share'),
     list, startBtn, wait));
+  qrSvg(liveLink(code)).then((svg) => qrBox.replaceChildren(svg)).catch(() => qrBox.remove());
   LIVE.unwatch = NET.watch(code, (room) => {
     if (!room) { toast('The room was closed'); liveStop(); home(); return; }
     LIVE.room = room;

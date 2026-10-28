@@ -351,6 +351,19 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await A.waitForSelector('.roomcode');
     const code = (await A.textContent('.roomcode')).trim();
     ok(/^[A-Z]{5}$/.test(code), 'room made: ' + code);
+    // The lobby shows a QR code and the join link; the QR code reads back as that link.
+    const link = await A.inputValue('.linkrow input');
+    ok(link.endsWith('?room=' + code), 'lobby link: ' + link);
+    await A.waitForSelector('.qr');
+    const qrText = await A.evaluate(async () => {
+      if (!window.jsQR) await new Promise((res) => { const s = document.createElement('script'); s.src = 'vendor/qr/jsQR.js'; s.onload = res; document.head.appendChild(s); });
+      const svg = document.querySelector('.qr'), img = new Image();
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(svg));
+      await img.decode();
+      const c = document.createElement('canvas'); c.width = c.height = 400; const x = c.getContext('2d'); x.drawImage(img, 0, 0, 400, 400);
+      const r = window.jsQR(x.getImageData(0, 0, 400, 400).data, 400, 400); return r && r.data;
+    });
+    ok(qrText === link, 'QR code reads back as the join link (' + qrText + ')');
     await B.goto(BASE + '?net=local&room=' + code);
     await B.waitForSelector('.input.code');
     ok((await B.inputValue('.input.code')) === code, 'invite link fills in the code');
@@ -378,7 +391,11 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await A.waitForFunction(() => /playing · 3\/14/.test(document.querySelector('.card.sky') ? document.querySelector('.card.sky').textContent : ''), null, { timeout: 8000 }).catch(() => {});
     const acard = await A.textContent('.card.sky'); ok(/playing · 3\/14/.test(acard), 'Xrazt\'s results show Sam still playing 3/14 (' + acard + ')');
     await B.bringToFront();
-    await B.click('button:has-text("Give up")'); await B.click('button:has-text("Give up and show me")'); await B.click('button:has-text("See results")');
+    await B.click('button:has-text("Give up")'); await B.click('button:has-text("Give up and show me")');
+    const clear = await B.evaluate(() => { const a = document.querySelector('.reveal-bar .btn').getBoundingClientRect(), l = document.querySelector('.livebar').getBoundingClientRect(); return a.bottom <= l.top && a.top >= 0; });
+    ok(clear, 'after giving up, the See results button sits above the live bar');
+    await B.screenshot({ path: path.join(outDir, 'live-gaveup.png') });
+    await B.click('button:has-text("See results")');
     await B.waitForSelector('.result-time');
     await B.waitForFunction(() => document.querySelectorAll('.card.sky .list li').length === 2 && !/still playing/.test(document.querySelector('.card.sky').textContent), null, { timeout: 4000 });
     const order = await B.$$eval('.card.sky .list li .q', (els) => els.map((e) => e.firstChild.textContent));
@@ -393,6 +410,41 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     ok(errors.length === 0, 'online race: no page errors ' + JSON.stringify(errors));
     await ctx.close();
     if (only === 'live') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }
+  }
+
+  // QR scanner with a fake camera that shows a QR code for room ABCDE: the code lands in the Join box.
+  if (!only || only === 'scan') {
+    const fs2 = require('fs'), { execSync } = require('child_process');
+    const qrPage = await (await b.newContext({ viewport: { width: 480, height: 480 } })).newPage();
+    await qrPage.goto(BASE + '?net=local');
+    await qrPage.evaluate(async () => {
+      await new Promise((res) => { const s = document.createElement('script'); s.src = 'vendor/qr/qrcode.js'; s.onload = res; document.head.appendChild(s); });
+      const q = window.qrcode(0, 'M'); q.addData(location.origin + location.pathname + '?room=ABCDE'); q.make();
+      document.body.innerHTML = '<div style="background:#fff;width:480px;height:480px;display:grid;place-items:center">' + q.createSvgTag({ cellSize: 10, margin: 4 }) + '</div>';
+    });
+    const png = path.join(outDir, 'scan-qr.png'), y4m = path.join(outDir, 'scan-qr.y4m');
+    await qrPage.screenshot({ path: png });
+    execSync('ffmpeg -y -loglevel error -loop 1 -i ' + png + ' -t 4 -r 10 -pix_fmt yuv420p ' + y4m);
+    const cam = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--use-file-for-fake-video-capture=' + y4m] });
+    const cctx = await cam.newContext({ viewport: { width: 360, height: 780 } });
+    await cctx.grantPermissions(['camera'], { origin: BASE.replace(/\/Geography-Quiz\/$/, '') });
+    const P = await cctx.newPage();
+    const errors = []; P.on('pageerror', (e) => errors.push(e.message));
+    await P.goto(BASE + '?net=local');
+    await P.click('button:has-text("Online")');
+    ok((await P.inputValue('input[aria-label="Room code"]')) === '', 'Join box starts empty (no "[object PointerEvent]")');
+    ok(await P.isVisible('button:has-text("Host match")'), 'Online screen has Host match');
+    const code8 = await P.evaluate(() => window.GS.encodeCode({ kind: 'board', games: ['flags'], region: 'Europe', seed: 77 }));
+    await P.fill('input[aria-label="Challenge code"]', code8);
+    ok((await P.textContent('.card:has(input[aria-label="Challenge code"])')).includes('✓ Flags · Europe'), 'challenge code works on the Online screen');
+    await P.fill('input[placeholder="Name"]', 'Sam');
+    await P.click('button:has-text("Scan QR")');
+    await P.waitForFunction(() => document.querySelector('input[aria-label="Room code"]').value === 'ABCDE', null, { timeout: 15000 }).catch(() => {});
+    ok((await P.inputValue('input[aria-label="Room code"]')) === 'ABCDE', 'scanner read the QR code into the Join box');
+    ok(!(await P.$('.scan-video')), 'scanner closed after reading');
+    ok(errors.length === 0, 'scanner: no page errors ' + JSON.stringify(errors));
+    await cam.close(); fs2.rmSync(y4m, { force: true });
+    if (only === 'scan') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }
   }
 
   // Islands: Oceania and the Caribbean on a phone, tapping each island country's ring (a little off-centre,

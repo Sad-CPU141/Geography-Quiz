@@ -361,3 +361,15 @@ body.fullscreen{overflow:hidden}
 .livebar .lb.done{color:#bff3d5}
 body:has(.livebar) .app{padding-bottom:calc(60px + env(safe-area-inset-bottom,0px))}
 [hidden]{display:none !important}
+/* online: lobby QR + link, scanner */
+.qrbox{display:flex;justify-content:center}
+.qr{width:min(220px,60vw);height:auto;border-radius:12px;box-shadow:0 0 0 6px #fff}
+.linkrow{display:flex;gap:8px}
+.linkrow .input{flex:1;min-width:0;font-size:14px;min-height:46px}
+.linkrow .btn{flex:none;width:auto}
+.scan-video{width:100%;border-radius:14px;background:#000;aspect-ratio:1;object-fit:cover}
+/* give up: the Next / See results button stays clear of the live standings bar */
+.reveal-bar{z-index:30}
+.reveal-bar .btn{min-height:58px;font-size:20px}
+body:has(.livebar) .reveal-bar{bottom:calc(64px + env(safe-area-inset-bottom,0px))}
+body:has(.livebar) .reveal-bar.floating{bottom:calc(74px + env(safe-area-inset-bottom,0px))}
