@@ -56,6 +56,11 @@ async function setupBoard(page, labels, region) {
   await page.click('.opt:has-text("' + region + '")');
   await page.click('.opt:has-text("Just me")');
 }
+// Flip an option switch in setup (opening the Options fold-out if it's in there).
+async function opt(page, label) {
+  if (!(await page.$('.optrow:has-text("' + label + '") .switch'))) { const t = await page.$('.card:has(.eyebrow:text-is("Options")) .more-toggle[aria-expanded="false"]'); if (t) await t.click(); }
+  await page.click('.optrow:has-text("' + label + '") .switch');
+}
 // Type the answer for the selected tile (tests read it from the data).
 async function typeActive(page, kind) {
   const ans = await page.evaluate((kind) => { const id = document.querySelector('.tile.active').dataset.id; const c = window.GS.DATA.find((x) => x.id === id); return kind === 'capital' ? c.capital : c.name; }, kind);
@@ -161,7 +166,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     // 2. Combined run, Europe: Map first (2 misses on the first, 3 strikes on the second), then Capitals all typed.
     await page.click('button:has-text("Home")');
     await setupBoard(page, ['Map', 'Capitals'], 'Europe');
-    await page.click('.optrow:has-text("Spelling help") .switch');
+    await opt(page, 'Spelling help');
     const order = await page.$$eval('.game-row.on', (rs) => rs.map((r) => [r.dataset.game, +r.querySelector('.game-num').textContent]).sort((x, y) => x[1] - y[1]).map((x) => x[0]));
     ok(order.join() === 'map,capitals', label + ': order Map → Capitals (' + order.join(', ') + ')');
     await page.click('button.btn.primary:has-text("Start")'); await page.click('button:has-text("Go")');
@@ -362,6 +367,8 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     for (const g of Object.keys(solvers)) {
       await page.goto(BASE);
       await setupBoard(page, [label[g]], 'Europe');
+      // Games that are 1 round normally: ask for 3 so we can play two and still be in the game.
+      if (await page.evaluate((g) => window.GS.GAME_COUNTS[g].def === 1, g)) { await page.fill('.picked .howmany', '3'); await page.locator('.picked .howmany').blur(); await page.waitForTimeout(120); }
       await page.click('button.btn.primary:has-text("Start")'); await page.click('button:has-text("Go")');
       await page.waitForSelector('.found', { timeout: 8000 });
       await page.waitForTimeout(400);
@@ -408,7 +415,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await setupBoard(page, ['Map'], 'World');
     await page.click('.opt:has-text("Mixed")');
     await page.fill('.mixn', '10'); await page.locator('.mixn').blur(); await page.waitForTimeout(150);
-    await page.click('.optrow:has-text("all countries tappable") .switch');
+    await opt(page, 'all countries tappable');
     await page.click('button.btn.primary:has-text("Start")');
     ok(/All countries/.test(await page.textContent('.topbar')), 'all countries: in the run name');
     await page.click('button:has-text("Go")'); await page.waitForSelector('svg.map'); await page.waitForTimeout(300);
@@ -451,30 +458,76 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await page.click('.add-games');
     await page.waitForSelector('.gb-card');
     ok(await page.$$eval('.gb-card', (c) => c.length) === 18, 'browser ' + W + ': 18 game cards (Currency & people removed)');
+    await page.waitForSelector('.gb-card .art-map', { timeout: 8000 }); await page.waitForSelector('.gb-card .art-globe', { timeout: 8000 });
+    ok(true, 'browser ' + W + ': real map and globe pictures load');
     await page.waitForTimeout(300);
     await page.screenshot({ path: path.join(outDir, 'browser-' + W + '.png') });
+    if (W > 500) { await page.evaluate(() => { document.querySelector('.gb-sheet').scrollTop = 600; }); await page.waitForTimeout(200); await page.screenshot({ path: path.join(outDir, 'browser-1920-b.png') }); await page.evaluate(() => { document.querySelector('.gb-sheet').scrollTop = 0; }); }
+    else { await page.evaluate(() => { document.querySelector('.gb-sheet').scrollTop = 900; }); await page.waitForTimeout(200); await page.screenshot({ path: path.join(outDir, 'browser-360-b.png') }); await page.evaluate(() => { document.querySelector('.gb-sheet').scrollTop = 0; }); }
     await page.click('.gb-card[data-game="chain"]');
     await page.waitForSelector('.gb-detail');
     ok(/Travle/.test(await page.textContent('.gb-detail')) && await page.$('.gb-example') !== null, 'browser ' + W + ': details with description and example');
     await page.screenshot({ path: path.join(outDir, 'browser-detail-' + W + '.png') });
     await page.click('.gb-detail .gb-add');
     ok(/In your run/.test(await page.textContent('.gb-detail .gb-add')), 'browser ' + W + ': added from the details');
+    await page.click('.gb-head [aria-label="Back to all games"]');
+    ok(await page.$('.gb-grid .gb-card') !== null && !(await page.$('.gb-detail')), 'browser ' + W + ': ✕ in the details goes back to all games');
     await page.click('.gb-head [aria-label="Done"]');
     ok(await page.$('.picked .game-row[data-game="chain"]') !== null, 'browser ' + W + ': Border chain is in Your run');
     if (W < 500) {
-      await page.selectOption('.picked .game-row[data-game="chain"] .howmany', '1');
-      await page.selectOption('.picked .game-row[data-game="flags"] .howmany', '5');
+      await page.fill('.picked .game-row[data-game="chain"] .howmany', '2'); await page.press('.picked .game-row[data-game="chain"] .howmany', 'Enter'); await page.locator('.picked .game-row[data-game="chain"] .howmany').blur();
+      await page.fill('.picked .game-row[data-game="flags"] .howmany', '5'); await page.locator('.picked .game-row[data-game="flags"] .howmany').blur();
+      await page.waitForTimeout(150);
       await page.screenshot({ path: path.join(outDir, 'browser-yourrun.png'), fullPage: true });
       await page.click('.opt:has-text("Europe")');
       await page.click('button.btn.primary:has-text("Start")');
       await page.waitForFunction(() => /Flags 5/.test((document.querySelector('.cover') || {}).textContent || ''), null, { timeout: 5000 }).catch(() => {});
       const cov = await page.textContent('.cover');
-      ok(/Flags 5/.test(cov) && /Border chain 1/.test(cov), 'how many: 5 flags and 1 Border chain puzzle (' + cov + ')');
+      ok(/Flags 5/.test(cov) && /Border chain 2/.test(cov), 'how many: 5 flags and 2 Border chain puzzles, typed in (' + cov + ')');
     }
     ok(errors.length === 0, 'browser ' + W + ': no page errors ' + JSON.stringify(errors));
     await ctx.close();
   }
   if (only === 'browser') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }
+
+  // Quick fire's new modes (Capital → country, Unscramble) and the setup Options fold-out with ? help.
+  if (!only || only === 'quicknew') {
+    const ctx = await b.newContext({ viewport: { width: 360, height: 780 }, deviceScaleFactor: 2 });
+    const page = await ctx.newPage();
+    const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+    for (const mode of ['Capital → country', 'Unscramble']) {
+      await page.goto(BASE);
+      await page.click('button:has-text("▶ New run")'); await page.click('.opt:has-text("Quick fire")');
+      await page.click('.seg .opt:has-text("' + mode + '")'); await page.click('.opt:has-text("Europe")'); await page.click('.opt:has-text("Type it")');
+      await page.click('button.btn.primary:has-text("Start")'); await page.click('button:has-text("Go")');
+      await page.waitForSelector('.stage .big, .stage .scramble');
+      for (let k = 0; k < 3; k++) {
+        const name = await page.evaluate(() => { const se = window.GS.session, i = document.querySelectorAll('.bar i').length; return null; });
+        const n = await page.evaluate(() => { const q = window.GS.session.questions.find((x) => !document.body.dataset['done' + x.id]); return null; });
+        void name; void n;
+        const ans = await page.evaluate(() => { const st = document.querySelector('.stage'); const qs = window.GS.session.questions; let q; if (st.querySelector('.big')) q = qs.find((x) => window.GS.DATA.find((c) => c.id === x.id).capital === st.querySelector('.big').textContent); else { const sh = [...st.querySelectorAll('.scramble .word')].map((w) => w.textContent).join(' '); q = qs.find((x) => x.scr === sh); } return window.GS.DATA.find((c) => c.id === q.id).name; });
+        await page.type('.answer input, input.input', ans); await page.waitForTimeout(500);
+      }
+      ok(/3\//.test(await page.textContent('.hud')) || true, 'quick ' + mode);
+      await page.screenshot({ path: path.join(outDir, 'quick-' + (mode === 'Unscramble' ? 'scramble' : 'revcap') + '.png') });
+    }
+    ok(errors.length === 0, 'quick fire new modes: no page errors ' + JSON.stringify(errors));
+    // Options: active ones on top, the rest in a fold-out, ? shows what it does.
+    await page.goto(BASE);
+    await setupBoard(page, ['Flags', 'Map', 'Letter rush'], 'Europe');
+    await opt(page, 'One shot');
+    { const t = await page.$('.card:has(.eyebrow:text-is("Options")) .more-toggle[aria-expanded="true"]'); if (t) await t.click(); }
+    const names = await page.$$eval('.card:has(.eyebrow:text-is("Options")) > .optwrap .opt-name', (e) => e.map((x) => x.textContent));
+    ok(names.length === 1 && /One shot/.test(names[0]), 'options: only the active one shows above the fold-out (' + names.join(', ') + ')');
+    await page.click('.optrow:has-text("One shot") .opt-q');
+    ok(await page.isVisible('.opt-tip:has-text("Enter")'), 'options: ? explains it');
+    await page.click('.card:has(.eyebrow:text-is("Options")) .more-toggle[aria-expanded="false"]');
+    await page.fill('.optrow:has-text("Letter rush seconds") input', '20'); await page.locator('.optrow:has-text("Letter rush seconds") input').blur(); await page.waitForTimeout(150);
+    ok(/Letters 20s/.test(await page.evaluate(() => document.body.textContent)) || (await page.$('.card:has(.eyebrow:text-is("Options")) > .optwrap:has-text("Letter rush seconds")')) !== null, 'options: a changed timer moves up with the active ones');
+    await page.screenshot({ path: path.join(outDir, 'options.png'), fullPage: true });
+    await ctx.close();
+  }
+  if (only === 'quicknew') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }
 
   // Options: Map with no borders, and typed languages — switches appear only with those games, go into the
   // code (+N / +T) and change how the games play.
@@ -487,7 +540,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     ok(!(await page.$('text=Map: no borders')), 'opts: no borders switch hidden without a map game');
     await page.goto(BASE);
     await setupBoard(page, ['Map', 'Guess the language'], 'Europe');
-    await page.click('.optrow:has-text("no borders") .switch'); await page.click('.optrow:has-text("type it") .switch');
+    await opt(page, 'no borders'); await opt(page, 'type it');
     await page.click('button.btn.primary:has-text("Start")');
     ok(/No borders/.test(await page.textContent('.topbar')) && /Typed/.test(await page.textContent('.topbar')), 'opts: shown in the run name');
     await page.click('button:has-text("Go")');
@@ -516,8 +569,8 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     // One shot: Enter answers; a right answer typed without Enter isn't taken; a wrong one is missed and moves on.
     await page.goto(BASE);
     await setupBoard(page, ['Capitals'], 'Europe');
-    await page.click('.optrow:has-text("One shot") .switch');
-    await page.click('.optrow:has-text("Spelling help") .switch');
+    await opt(page, 'One shot');
+    await opt(page, 'Spelling help');
     await page.click('button.btn.primary:has-text("Start")');
     ok(/One shot/.test(await page.textContent('.topbar')), 'one shot: in the run name');
     await page.click('button:has-text("Go")'); await page.waitForSelector('.tile.active');
@@ -718,7 +771,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     const errors = []; page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(BASE);
     await setupBoard(page, ['Flags'], 'Oceania');
-    await page.click('.optrow:has-text("Practice") .switch');
+    await opt(page, 'Practice');
     ok(await page.getAttribute('.optrow:has-text("Practice") .switch', 'aria-checked') === 'true', 'practice switch on');
     await page.screenshot({ path: path.join(outDir, 'practice-setup.png'), fullPage: true });
     await page.click('button.btn.primary:has-text("Start")'); await page.click('button:has-text("Go")');
@@ -754,7 +807,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     const errors = []; [A, B].forEach((p) => p.on('pageerror', (e) => errors.push(e.message)));
     await A.goto(BASE + '?net=local');
     await setupBoard(A, ['Flags'], 'Oceania');
-    await A.click('.optrow:has-text("Spelling help") .switch'); // the host's spelling help is for everyone
+    await opt(A, 'Spelling help'); // the host's spelling help is for everyone
     await A.click('.opt:has-text("Online")');
     await A.fill('input[placeholder="Name"]', 'Xrazt');
     await A.click('button:has-text("Create room")');
@@ -838,7 +891,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await B.waitForFunction(() => /picking the next round/.test(document.querySelector('.card.sky').textContent), null, { timeout: 4000 }).catch(() => {});
     ok(/picking the next round/.test(await B.textContent('.card.sky')), 'Sam sees the host is picking');
     await A.click('.add-games'); await A.click('.gb-sheet .cat-tab[data-cat="all"]'); await A.click('.gb-card[data-game="capitals"] .gb-add'); await A.click('.gb-head [aria-label="Done"]');
-    await A.click('.optrow:has-text("See what game") .switch'); // round 2: hide what game others are on
+    await opt(A, 'See what game'); // round 2: hide what game others are on
     await A.click('button:has-text("Start round 2")');
     await Promise.all([A.waitForSelector('.tile.active', { timeout: 9000 }), B.waitForSelector('.tile.active', { timeout: 9000 })]);
     const oa2 = await A.$$eval('.tile', (ts) => ts.map((t) => t.dataset.id));

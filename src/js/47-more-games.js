@@ -24,14 +24,22 @@ function typeRounds(api, o) {
   const pass = h('button', { class: 'btn ghost small', style: { width: 'auto', flex: '0 0 auto' }, onmousedown: (e) => e.preventDefault(), onclick: () => next(false) }, 'Pass');
   const footer = h('div', { class: 'reveal-bar', hidden: true });
   const head = boardHead(api, [h('div', { class: 'progress' }, foundEl)]);
-  mount(h('div', { class: 'app grid-run' }, head, h('div', { class: 'duel' }, stage, h('div', { class: 'row lang-type' }, input, pass), sugEl, verdict), footer));
+  // Optional time limit per question (Unscramble): a bar runs down; at zero the answer shows and it counts as missed.
+  const bar = h('i'), clockBar = o.timeMs ? h('div', { class: 'lettertime' }, bar) : null;
+  let endsAt = 0, timer = 0;
+  const tick = () => { if (busy || revealed) return; const ms = endsAt - performance.now(); bar.style.width = Math.max(0, ms / o.timeMs * 100) + '%'; clockBar.classList.toggle('low', ms < Math.min(5000, o.timeMs / 3)); if (ms <= 0) return next(false); timer = requestAnimationFrame(tick); };
+  cleanup.push(() => cancelAnimationFrame(timer));
+  mount(h('div', { class: 'app grid-run' }, head, h('div', { class: 'duel' }, stage, clockBar, h('div', { class: 'row lang-type' }, input, o.extra ? o.extra(() => sec.ids[i], stage) : null, pass), sugEl, verdict), footer));
   const cur = () => o.answer(sec.ids[i]);
   const help = spellingHelp(input, sugEl, 'country', cur, () => next(true), null, strict ? () => { shake(input); next(false); } : null);
   function count() { foundEl.textContent = res.found.length + ' right · ' + Math.max(0, sec.ids.length - i - (busy ? 1 : 0)) + ' left'; }
-  function draw() { verdict.textContent = ''; verdict.className = 'lang-verdict center'; input.value = ''; input.disabled = false; help.clear(); stage.replaceChildren(...o.show(sec.ids[i])); count(); input.focus({ preventScroll: true }); }
+  function draw() {
+    verdict.textContent = ''; verdict.className = 'lang-verdict center'; input.value = ''; input.disabled = false; help.clear(); stage.replaceChildren(...o.show(sec.ids[i])); count(); input.focus({ preventScroll: true });
+    if (o.timeMs) { cancelAnimationFrame(timer); endsAt = performance.now() + o.timeMs; timer = requestAnimationFrame(tick); }
+  }
   function next(right) {
     if (busy || revealed || i >= sec.ids.length) return;
-    busy = true; api.R.clock.pause(); input.disabled = true; help.clear();
+    busy = true; cancelAnimationFrame(timer); api.R.clock.pause(); input.disabled = true; help.clear();
     const id = sec.ids[i];
     if (right) res.found.push(id);
     verdict.textContent = (right ? '✓ ' : 'It was ') + BY_ID[o.answer(id)].name;
@@ -56,10 +64,14 @@ function typeRounds(api, o) {
   };
 }
 // Unscramble: the letters of a country's name, mixed up.
+// 15 seconds per name (changeable in setup); 🔀 mixes the letters up again.
 function scrambleGame(api) {
   const sec = api.sec;
-  return typeRounds(api, { answer: (id) => id, text: (id) => sec.scr[id],
-    show: (id) => [h('p', { class: 'eyebrow center' }, 'Unscramble'), h('div', { class: 'scramble' }, sec.scr[id].split(' ').map((w) => h('span', { class: 'word' }, w.split('').map((ch) => h('b', null, ch)))))] });
+  const tiles = (text) => h('div', { class: 'scramble' }, text.split(' ').map((w) => h('span', { class: 'word' }, w.split('').map((ch) => h('b', null, ch)))));
+  return typeRounds(api, { answer: (id) => id, text: (id) => sec.scr[id], timeMs: (S.session.cfg.scSec || SCRAMBLE_SEC) * 1000,
+    show: (id) => [h('p', { class: 'eyebrow center' }, 'Unscramble'), tiles(sec.scr[id])],
+    extra: (curId, stage) => h('button', { class: 'btn ghost small', style: { width: 'auto', flex: '0 0 auto' }, 'aria-label': 'Mix the letters again', onmousedown: (e) => e.preventDefault(),
+      onclick: () => { const id = curId(); if (!id) return; const old = stage.querySelector('.scramble'); if (old) old.replaceWith(tiles(scrambleName(BY_ID[id].name, Math.random))); } }, '🔀') });
 }
 // Currency & people: "id~c" = its currency, "id~d" = what its people are called.
 const currencyClue = (key) => { const [id, t] = key.split('~'), c = BY_ID[id]; return t === 'c' ? c.cur.filter((x) => CURRENCY_COUNT[x] === 1)[0] : c.dem; };
@@ -307,7 +319,7 @@ function closerGame(api) {
 
 /* Letter rush: a letter; name as many countries (of the run's countries) starting with it as you can in 12 seconds.
    Right ones fill in; wrong ones just don't count. When time's up the ones you missed show, then the next letter. */
-const LETTER_MS = 12000;
+const letterMs = () => (S.session.cfg.lrSec || LETTER_SEC) * 1000;
 function letterGame(api) {
   const { sec, res } = api;
   let li = 0, busy = false, revealed = false, endsAt = 0, timer = 0;
@@ -335,12 +347,12 @@ function letterGame(api) {
   function tick() {
     if (revealed || busy) return;
     const ms = endsAt - performance.now();
-    bar.style.width = Math.max(0, ms / LETTER_MS * 100) + '%';
-    clockBar.classList.toggle('low', ms < 10000);
+    bar.style.width = Math.max(0, ms / letterMs() * 100) + '%';
+    clockBar.classList.toggle('low', ms < Math.min(5000, letterMs() / 3));
     if (ms <= 0) return endLetter();
     timer = requestAnimationFrame(tick);
   }
-  function startLetter() { endsAt = performance.now() + LETTER_MS; input.disabled = false; input.value = ''; help.clear(); draw(false); input.focus({ preventScroll: true }); cancelAnimationFrame(timer); timer = requestAnimationFrame(tick); }
+  function startLetter() { endsAt = performance.now() + letterMs(); input.disabled = false; input.value = ''; help.clear(); draw(false); input.focus({ preventScroll: true }); cancelAnimationFrame(timer); timer = requestAnimationFrame(tick); }
   function take() {
     const id = match(input.value); if (!id || busy) return;
     got.add(id); res.found.push(id); input.value = ''; help.clear(); draw(false);

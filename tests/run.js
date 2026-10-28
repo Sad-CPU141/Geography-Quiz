@@ -101,6 +101,8 @@ ok(dd.ids.length === 20, 'duel: 20 rounds');
 const seen = new Set(); let fair = true;
 dd.ids.forEach((k) => { const [a, b] = k.split('|'); seen.add(a); seen.add(b); const A = GS.DATA.find((c) => c.id === a).area, B = GS.DATA.find((c) => c.id === b).area; if (Math.abs(A - B) <= 0.1 * Math.max(A, B)) fair = false; });
 ok(fair && seen.size === 40, 'duel: clear winners, 40 different countries');
+const dgap = dd.ids.map((k) => { const [a, b] = k.split('|'), A = GS.DATA.find((c) => c.id === a).area, B = GS.DATA.find((c) => c.id === b).area; return Math.abs(A - B) / Math.max(A, B); });
+ok(dgap.filter((g) => g < 0.35).length >= 16, 'duel: mostly similar sizes (10–35% apart): ' + dgap.filter((g) => g < 0.35).length + '/20');
 ok(GS.duelWinner('ru|ca') === 'ru' && GS.duelWinner('mc|va') === 'mc', 'duel winner by area');
 // Guess the language: 20 rounds of the region's official languages, 4 different options, fair wrong options.
 const LB = GS.LANG_BY;
@@ -169,12 +171,13 @@ for (let sd = 1; sd <= 25; sd++) {
   const code = GS.encodeCode(cfgN), back = GS.decodeCode(code);
   ok(/\+V$/.test(code) && back && back.games.join() === cfgN.games.join() && back.region === cfgN.region && back.seed === cfgN.seed, 'new games in a challenge code (' + code + ')');
   const B = GS.makeBoard(cfgN), sec = (g) => B[NEW.indexOf(g)];
-  ok(sec('chain').ids.length === 5 && sec('chain').ids.every((k) => { const [a, b] = k.split('~'), r = GS.shortestRoute(a, b); return r && r.length >= 4 && r.length <= 7 && r.every((x, i) => i === 0 || GS.DATA.find((c) => c.id === r[i - 1]).nb.includes(x)); }), 'border chain: 5 puzzles, 2–5 countries in between, real land route');
+  ok(sec('chain').ids.length === 1 && sec('chain').ids.every((k) => { const [a, b] = k.split('~'), r = GS.shortestRoute(a, b); return r && r.length >= 4 && r.length <= 7 && r.every((x, i) => i === 0 || GS.DATA.find((c) => c.id === r[i - 1]).nb.includes(x)); }), 'border chain: 1 puzzle (normal), 2–5 countries in between, real land route');
   ok(sec('closer').ids.every((k) => { const [t, a, b] = k.split('|'), da = GS.km(t, a), db = GS.km(t, b); return Math.abs(da - db) > 0.07 * Math.max(da, db) && GS.closerOf(k) === (da < db ? a : b); }) && sec('closer').ids.filter((k) => { const [t, a, b] = k.split('|'), da = GS.km(t, a), db = GS.km(t, b); return Math.abs(da - db) < 0.22 * Math.max(da, db); }).length >= sec('closer').ids.length * 0.6, 'closer or further: clear answer (>7% apart), mostly close calls (<22%)');
   ok(sec('currency').ids.every((k) => { const [id, t] = k.split('~'), c = GS.DATA.find((x) => x.id === id); return t === 'c' ? c.cur.some((x) => GS.CURRENCY_COUNT[x] === 1) : GS.DEMONYM_COUNT[c.dem] === 1; }), 'currency & people: every clue points to one country only');
   ok(sec('scramble').ids.every((id) => { const sc = sec('scramble').scr[id], n = GS.DATA.find((c) => c.id === id).name; return sc.replace(/ /g, '').split('').sort().join() === n.toUpperCase().replace(/ /g, '').split('').sort().join() && GS.norm(sc) !== GS.norm(n); }), 'unscramble: same letters, never the name itself');
   ok(sec('letter').letters.every((x) => x.ids.every((id) => GS.norm(GS.DATA.find((c) => c.id === id).name)[0].toUpperCase() === x.L)), 'letter rush: every answer starts with its letter');
-  ok(sec('hot').ids.length === 3 && sec('clues').ids.length === 10 && sec('flagpick').grid.length === sec('flagpick').ids.length, 'hot/clues/flag finder sizes');
+  ok(sec('hot').ids.length === 1 && sec('clues').ids.length === 1 && sec('flagpick').grid.length === sec('flagpick').ids.length, 'hot/clues/flag finder sizes (1 / 1 / all)');
+  ok(sec('letter').letters.length === 1 && sec('letter').letters[0].ids.length === GS.DATA.filter((c) => GS.norm(c.name)[0].toUpperCase() === sec('letter').letters[0].L).length, 'letter rush: every country in the game with that letter counts');
 }
 ok(GS.km('fr', 'de') > 300 && GS.km('fr', 'de') < 1000 && GS.km('fr', 'au') > 14000, 'distances (France–Germany, France–Australia)');
 ok(Math.abs(GS.bearing('fr', 'de') - 60) < 40 && Math.abs(GS.bearing('fr', 'es') - 220) < 40, 'directions (Germany is north-east of France, Spain south-west)');
@@ -188,6 +191,17 @@ ok(/Q1\.5\.10\.0/.test(cqc) && JSON.stringify(cqb.counts) === JSON.stringify(cq.
 ok(/Flags ×5/.test(GS.cfgLabel(cq)) && /Shapes ×10/.test(GS.cfgLabel(cq)), 'per-game numbers in the run name');
 const bq2 = GS.makeBoard(GS.withOpts({ kind: 'board', games: ['letter', 'hot', 'borders', 'duel'], region: 'world', seed: 5 }, { counts: { letter: 1, hot: 8, borders: 3, duel: 5 } }));
 ok(bq2[0].letters.length === 1 && bq2[1].ids.length === 8 && bq2[2].countries.length === 3 && bq2[3].ids.length === 5, 'per-game numbers for letters / mysteries / border countries / rounds');
+// Quick fire's newer modes: Capital → country and Unscramble (code ends +M4 / +M5).
+for (const mode of ['revcap', 'scramble']) {
+  const qc = { kind: 'quick', mode, region: 'Africa', count: 10, style: 'type', seed: 4242 };
+  const code = GS.encodeCode(qc), back = GS.decodeCode(code);
+  ok(/\+M[45]$/.test(code) && back.mode === mode && back.count === 10 && back.region === 'Africa', 'quick fire ' + mode + ' in a code (' + code + ')');
+  const run = GS.makeRun(qc);
+  ok(run.length === 10 && run.every((q) => q.kind === mode && (mode !== 'scramble' || (q.scr && GS.norm(q.scr) !== GS.norm(GS.DATA.find((c) => c.id === q.id).name)))) && GS.isRight(run[0].id, mode, GS.DATA.find((c) => c.id === run[0].id).name), 'quick fire ' + mode + ': questions, answer = the country');
+}
+// Timers in the code.
+const tc = GS.withOpts({ kind: 'board', games: ['letter', 'scramble'], region: 'world', seed: 3 }, { lrSec: 20, scSec: 8 });
+ok(/L20U8/.test(GS.encodeCode(tc)) && GS.decodeCode(GS.encodeCode(tc)).lrSec === 20 && GS.decodeCode(GS.encodeCode(tc)).scSec === 8 && !GS.withOpts({ kind: 'board', games: ['letter'], region: 'world', seed: 3 }, { lrSec: 12 }).lrSec, 'letter/unscramble timers in the code (normal = left out)');
 // Daily run: same all day, different tomorrow, always two games and a continent.
 const d1 = GS.dailyCfg(20388), d2 = GS.dailyCfg(20388), d3 = GS.dailyCfg(20389);
 ok(JSON.stringify(d1) === JSON.stringify(d2) && JSON.stringify(d1) !== JSON.stringify(d3), 'daily: same day same run, next day different');

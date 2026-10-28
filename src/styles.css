@@ -571,3 +571,53 @@ body:has(.livebar) .reveal-bar.floating{bottom:calc(74px + env(safe-area-inset-b
 .art-two{width:60%;justify-content:center}.art-two .art-flag{width:45%}
 .art .art-shape{width:92%;height:84%}
 .art-pin{left:56%;top:24%}
+
+/* Options: ? help, fold-out */
+.optwrap{display:flex;flex-direction:column}
+.opt-name{display:flex;align-items:center;gap:8px}
+.opt-q{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1.5px solid var(--muted);color:var(--muted);background:transparent;font-size:13px;font-weight:800;padding:0;flex:0 0 auto}
+.opt-q:hover{border-color:var(--sky);color:var(--sky)}
+.opt-tip{margin:0 0 8px;padding:8px 12px;border-radius:10px;background:var(--panel2);color:var(--muted);font-size:14px;line-height:1.4}
+.howmany-row{display:flex;align-items:center;gap:6px}
+.howmany-row small{color:var(--muted);font-size:12px}
+.howmany{width:76px;font:inherit;font-size:14px;font-weight:700;color:var(--text);background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:4px 8px}
+.howmany.secs{width:70px;text-align:center}
+
+/* real map / globe pictures and mini game UI in the cards */
+.art-mapbox,.art-globebox{padding:0}
+.art-map{width:100%;height:100%;display:block}
+.art-map .cty{stroke-width:.6}
+.art-map .a-gold{fill:var(--gold)}.art-map .a-ok{fill:var(--ok)}.art-map .a-near{fill:#ffb03d}.art-map .a-bad{fill:var(--danger)}
+.art-globe{width:86%;height:86%}
+.art-chip.top{top:8%;bottom:auto}
+.art .art-flag.corner{position:absolute;left:6%;top:8%;width:30%;max-height:none}
+.art-ui{flex-direction:column;gap:8%}
+.ui-tile{display:flex;flex-direction:column;align-items:center;gap:4px;padding:6% 10%;border-radius:12px;background:var(--panel);border:2px solid var(--gold)}
+.ui-tile .art-flag{width:44px;height:auto;max-height:none}
+.ui-tile b{font-family:var(--cond);font-weight:800;font-size:18px}
+.ui-input{display:flex;align-items:center;gap:8px;padding:4px 12px;border-radius:10px;border:2px solid var(--sky);background:var(--ink);font-weight:700;font-size:14px}
+.ui-input em{font-style:normal;color:var(--ok)}
+.ui-opts{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+.ui-pick{display:flex;flex-direction:column;align-items:center;gap:3px;padding:6px;border-radius:10px;border:2px solid var(--line);background:var(--panel)}
+.ui-pick.ok{border-color:var(--ok)}
+.ui-pick .art-flag{width:48px;height:auto;max-height:none}
+.ui-pick small{font-size:12px;font-weight:700}
+.art-flagpick{flex-direction:column;gap:6%;padding-top:16%}
+.art-flagpick .art-grid{display:grid;width:90%}
+.gb-art.big .ui-tile b{font-size:28px}.gb-art.big .ui-input{font-size:20px}.gb-art.big .ui-tile .art-flag{width:80px}.gb-art.big .ui-pick .art-flag{width:90px}.gb-art.big .ui-pick small{font-size:16px}
+
+.art-globebox .art-globe{width:78%;height:78%;margin-bottom:10%}
+.art-globebox .art-chip{bottom:5%}
+.ui-tile.shape{padding:4% 8%}.ui-tile.shape .art-shape{width:90px;height:68px}
+.art-ui .art-scramble{display:flex;gap:3px;width:90%;justify-content:center}
+.gb-art.big .ui-tile.shape .art-shape{width:180px;height:135px}
+.art-globebox{flex-direction:column}
+.art-globebox .art-globe{width:72%;height:72%;margin:16% 0 0}
+.art-globebox .art-chip{top:5%;bottom:auto}
+@media (max-width:520px){.ui-pick .art-flag{width:36px}.ui-pick{padding:4px}.art-vs{gap:3%}}
+@media (max-width:520px){
+  .art-ui{gap:5%;padding:6%}
+  .gb-card .ui-tile{padding:3% 8%;gap:2px}.gb-card .ui-tile b{font-size:15px}.gb-card .ui-tile .art-flag{width:34px}
+  .gb-card .ui-tile.shape .art-shape{width:64px;height:46px}
+  .gb-card .ui-input{font-size:12px;padding:2px 8px}
+}

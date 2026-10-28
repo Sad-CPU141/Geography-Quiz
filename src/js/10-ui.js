@@ -202,13 +202,14 @@ function setup() {
     const cat = GAME_CATS.find((c) => c.id === st.cat) || GAME_CATS[0];
     if (!st.counts || typeof st.counts !== 'object') st.counts = {};
     // How many questions for this game: "All" (or its normal number) or a smaller/bigger one.
+    // How many for this game: type a number, or leave it empty for Normal (all of the run's countries — e.g.
+    // Oceania = 14 flags — or the game's normal number of rounds).
     const howMany = (g) => {
       const c = GAME_COUNTS[g]; if (!c) return null;
-      const max = COUNTRY_COUNT_GAMES.includes(g) || g === 'borders' ? n : Infinity;
-      const opts = [0].concat(c.opts.filter((x) => x < max && x !== c.def));
-      const cur = opts.includes(st.counts[g] || 0) ? st.counts[g] || 0 : 0;
-      return h('select', { class: 'howmany', 'aria-label': 'How many ' + c.unit + ' in ' + gameOf(g).label, onchange: (e) => { const v = +e.target.value; if (v) st.counts[g] = v; else delete st.counts[g]; save(); setup(); } },
-        opts.map((x) => h('option', { value: String(x), selected: x === cur }, x ? x + ' ' + c.unit : (c.def ? c.def + ' ' + c.unit : 'All ' + c.unit))));
+      const normal = c.def || n;
+      const box = h('input', { class: 'howmany', type: 'number', inputmode: 'numeric', min: 1, max: 999, placeholder: 'Normal', value: st.counts[g] ? String(st.counts[g]) : '', 'aria-label': 'How many ' + c.unit + ' in ' + gameOf(g).label + ' (empty = normal)',
+        onchange: (e) => { const v = Math.floor(+e.target.value || 0); if (v > 0) st.counts[g] = Math.min(999, v); else delete st.counts[g]; save(); setup(); } });
+      return h('label', { class: 'howmany-row' }, box, h('small', null, st.counts[g] ? c.unit : c.unit + ' · normal ' + normal));
     };
     const picked = st.games.map((g, i) => {
       const G = gameOf(g);
@@ -230,11 +231,44 @@ function setup() {
       h('div', { class: 'games picked' }, picked),
       h('button', { class: 'btn primary add-games', onclick: () => gameBrowser(st, () => { save(); setup(); }) }, '＋ Add games'));
   }
+  // Options: the ones that are on (or changed) show; the rest are in a fold-out. Each has a ? that explains it.
+  function optionsCard() {
+    const board = st.kind === 'board', has = (g) => board && st.games.includes(g), mapG = board && st.games.some((g) => MAP_GAMES.has(g));
+    const all = [
+      { k: 'help', label: '💡 Spelling help', on: board || st.style === 'type', tip: 'Shows "Did you mean …?" when you\'re a letter or two off. Tapping it answers.' },
+      { k: 'practice', label: '🧘 Practice', on: board && st.group !== 'live', tip: 'No clock and a Show answer button. Nothing is saved.' },
+      { k: 'hard', label: '🧱 Map: no borders', on: mapG, tip: 'Maps show coastlines only — no borders between countries until you answer them.' },
+      { k: 'allMap', label: '🌍 Map: all countries tappable', on: mapG, tip: 'Every country on the map can be tapped, not just the ones in this run, so colours don\'t give the answers away.' },
+      { k: 'langType', label: '⌨️ Languages: type it', on: has('lang'), tip: 'Type the language\'s name instead of picking from 4.' },
+      { k: 'strict', label: '🎯 One shot', on: board && (st.games.some((g) => TYPING_GAMES.includes(g)) || (has('lang') && st.langType)), tip: 'Answers only go in when you press Enter. A wrong one is missed and you move on.' },
+      { k: 'peek', label: '👀 See what game others are on', on: board && st.group === 'live', invert: true, tip: 'Online: while a friend is still playing you see which game they\'re on (never their score).' },
+      { k: 'lrSec', label: '⏱️ Letter rush seconds', on: has('letter'), num: LETTER_SEC, tip: 'Seconds per letter (normal ' + LETTER_SEC + ').' },
+      { k: 'scSec', label: '⏱️ Unscramble seconds', on: has('scramble'), num: SCRAMBLE_SEC, tip: 'Seconds per name (normal ' + SCRAMBLE_SEC + ').' },
+    ].filter((o) => o.on);
+    const isOn = (o) => o.num ? !!(st[o.k] && +st[o.k] !== o.num) : o.invert ? st[o.k] !== false : !!st[o.k];
+    const row = (o) => {
+      const tip = h('p', { class: 'opt-tip', hidden: true }, o.tip);
+      const q = h('button', { class: 'opt-q', title: o.tip, 'aria-label': 'What is ' + o.label.replace(/^\S+ /, '') + '?', onclick: () => { tip.hidden = !tip.hidden; } }, '?');
+      const ctl = o.num
+        ? h('input', { class: 'howmany secs', type: 'number', inputmode: 'numeric', min: 3, max: 120, placeholder: String(o.num), value: st[o.k] && +st[o.k] !== o.num ? String(st[o.k]) : '', 'aria-label': o.label,
+          onchange: (e) => { const v = Math.round(+e.target.value || 0); if (v >= 3 && v <= 120 && v !== o.num) st[o.k] = v; else delete st[o.k]; save(); setup(); } })
+        : h('button', { class: 'switch', role: 'switch', 'aria-checked': String(isOn(o)), 'aria-label': o.label, onclick: () => { st[o.k] = o.invert ? !isOn(o) : !st[o.k]; save(); setup(); } }, h('i'));
+      return h('div', { class: 'optwrap' }, h('div', { class: 'optrow' }, h('span', { class: 'opt-name' }, o.label, q), ctl), tip);
+    };
+    const active = all.filter(isOn), rest = all.filter((o) => !isOn(o));
+    if (!all.length) return null;
+    const open = !!st.optsOpen;
+    return h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Options'),
+      active.map(row),
+      rest.length ? h('button', { class: 'more-toggle', 'aria-expanded': String(open), onclick: () => { st.optsOpen = !open; save(); setup(); } },
+        h('span', null, (open ? '▾ ' : '▸ ') + (active.length ? 'More options' : 'Options')), h('small', null, rest.length + (active.length ? ' more' : ''))) : null,
+      open ? rest.map(row) : null);
+  }
   function quickCards() {
     const counts = (n > 60 ? [10, 25, 50] : [10, 20]).filter((x) => x < n).concat([n]);
     if (!counts.includes(st.count)) st.count = counts.includes(25) ? 25 : counts[Math.min(1, counts.length - 1)];
     return [
-      h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'What to name'), seg(MODES, st.mode, set('mode'), 4)),
+      h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'What to name'), seg(MODES, st.mode, set('mode'), 3)),
       h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'How many'), seg(counts.map((c) => ({ id: c, label: c === n ? 'All ' + c : String(c) })), st.count, set('count'), counts.length)),
       h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'How to answer'), seg(STYLES, st.style, set('style'), 2),
         h('p', { class: 'small muted' }, st.style === 'type' ? 'Skip +10s' : 'Wrong +5s')),
@@ -265,14 +299,7 @@ function setup() {
     st.kind === 'board' ? gamesCard() : null,
     whereCard(),
     st.kind === 'quick' ? quickCards() : null,
-    h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Options'),
-      st.kind === 'board' || st.style === 'type' ? optRow('💡 Spelling help', !!st.help, set('help')) : null,
-      st.kind === 'board' && st.group !== 'live' ? optRow('🧘 Practice (no clock)', !!st.practice, set('practice')) : null,
-      st.kind === 'board' && st.games.some((g) => MAP_GAMES.has(g)) ? optRow('🧱 Map: no borders', !!st.hard, set('hard')) : null,
-      st.kind === 'board' && st.games.some((g) => MAP_GAMES.has(g)) ? optRow('🌍 Map: all countries tappable', !!st.allMap, set('allMap')) : null,
-      st.kind === 'board' && st.games.includes('lang') ? optRow('⌨️ Languages: type it', !!st.langType, set('langType')) : null,
-      st.kind === 'board' && (st.games.some((g) => TYPING_GAMES.includes(g)) || (st.games.includes('lang') && st.langType)) ? optRow('🎯 One shot (Enter to answer)', !!st.strict, set('strict')) : null,
-      st.kind === 'board' && st.group === 'live' ? optRow('👀 See what game others are on', st.peek !== false, set('peek')) : null),
+    optionsCard(),
     S.liveNext ? null : h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Who is playing'),
       seg([{ id: false, label: 'Just me', em: '🙋' }, { id: true, label: 'Pass the phone', em: '👥' }].concat(st.kind === 'board' ? [{ id: 'live', label: 'Online', em: '🌐' }] : []), st.kind === 'quick' && st.group === 'live' ? false : st.group, set('group'), st.kind === 'board' ? 3 : 2),
       st.group === true ? [
@@ -365,27 +392,52 @@ const GAME_INFO = {
   flagpick: ['A country is named; find its flag among all the flags (Seterra style).', 'Find: Ireland → tap 🇮🇪'],
 };
 const artFlag = (id) => h('img', { class: 'art-flag', src: BY_ID[id].flag, alt: '' });
+// A crop of the real world map (once map.js is loaded): countries coloured by st (id → 'gold' | 'ok' | 'near' | 'bad'),
+// optionally only those countries drawn (Travle style). vb = [x, y, w, h] on the world map.
+function mapArt(vb, st, only) {
+  const M = window.GS_MAP.world;
+  const paths = Object.entries(M.c).filter(([id]) => !only || st[id]).map(([id, d]) => h('path', { class: 'cty' + (st[id] ? ' a-' + st[id] : ''), d }));
+  return h('svg', { class: 'map art-map', viewBox: vb.join(' '), preserveAspectRatio: 'xMidYMid slice' }, h('rect', { class: 'sea', x: vb[0] - 50, y: vb[1] - 50, width: vb[2] + 100, height: vb[3] + 100 }), only ? null : h('path', { class: 'land', d: M.land }), ...paths);
+}
+// A small globe (once d3 + the outlines are loaded), turned to [lon, lat], countries coloured by colour.
+function globeArt(rot, colours) {
+  const proj = d3.geoOrthographic().translate([100, 100]).scale(92).rotate(rot).clipAngle(90), gp = d3.geoPath(proj);
+  return h('svg', { class: 'globe art-globe', viewBox: '0 0 200 200' }, h('path', { class: 'g-sea', d: gp({ type: 'Sphere' }) }), h('path', { class: 'g-grat', d: gp(d3.geoGraticule10()) }),
+    ...DATA.map((c) => h('path', { class: 'g-cty', d: gp(globeFeature(c.id)) || '', style: colours[c.id] ? { fill: colours[c.id] } : null })));
+}
 function gameArt(g) {
   const A = (cls, ...kids) => h('div', { class: 'art art-' + cls }, ...kids);
+  const haveMap = !!window.GS_MAP, haveGlobe = !!(window.d3 && window.d3.geoOrthographic && window.GS_GLOBE);
+  if (haveMap) {
+    switch (g) {
+      case 'map': return A('mapbox', mapArt([470, 480, 320, 240], { pe: 'ok' }), h('span', { class: 'art-pin', style: { left: '38%', top: '28%' } }, '📍'), h('span', { class: 'art-chip' }, 'Find: Peru'));
+      case 'mapname': return A('mapbox', mapArt([520, 520, 240, 180], { bo: 'gold' }), h('span', { class: 'art-chip' }, 'Name it: ?'));
+      case 'flagmap': return A('mapbox', mapArt([1110, 410, 200, 150], { ke: 'ok' }), h('img', { class: 'art-flag corner', src: BY_ID.ke.flag, alt: '' }), h('span', { class: 'art-pin', style: { left: '48%', top: '30%' } }, '📍'));
+      case 'borders': return A('mapbox', mapArt([920, 170, 200, 150], { es: 'gold', fr: 'ok', pt: 'near', ad: 'near' }), h('span', { class: 'art-chips' }, h('i', { class: 'ok' }, 'France'), h('i', null, '?'), h('i', null, '?')));
+      case 'all': return A('mapbox', mapArt([915, 115, 290, 218], { fr: 'ok', es: 'ok', it: 'ok', de: 'ok', pl: 'ok', pt: 'ok' }), h('span', { class: 'art-chip' }, '6 found · 40 left'));
+      case 'chain': return A('mapbox', mapArt([955, 140, 190, 142], { fr: 'gold', de: 'ok', pl: 'gold', it: 'bad' }, true), h('span', { class: 'art-chip' }, 'France → Poland'));
+    }
+  }
+  if (haveGlobe && g === 'hot') return A('globebox', globeArt([58, 18], { br: '#7f0000', pe: '#ef6548', co: '#fdbb84', py: '#35d07f' }), h('span', { class: 'art-chip' }, 'Paraguay ✓ in 4'));
   switch (g) {
     case 'flags': return A('grid', ...['jp', 'br', 'ca', 'ke'].map(artFlag));
     case 'map': return A('shape', shapeSvg('pe', 'art-shape'), h('span', { class: 'art-pin' }, '📍'), h('span', { class: 'art-chip' }, 'Find: Peru'));
-    case 'capitals': return A('text', h('small', null, 'Kenya'), h('b', null, 'Nairobi'));
-    case 'shapes': return A('shape', shapeSvg('it', 'art-shape'), h('span', { class: 'art-q' }, '?'));
-    case 'revcap': return A('text', h('small', null, 'Canberra'), h('b', null, '→ ?'));
+    case 'capitals': return A('ui', h('span', { class: 'ui-tile' }, artFlag('ke'), h('b', null, 'Kenya')), h('span', { class: 'ui-input' }, 'Nairobi', h('em', null, '✓')));
+    case 'shapes': return A('ui', h('span', { class: 'ui-tile shape' }, shapeSvg('it', 'art-shape')), h('span', { class: 'ui-input' }, 'Italy', h('em', null, '✓')));
+    case 'revcap': return A('ui', h('span', { class: 'ui-tile' }, h('b', null, 'Canberra')), h('span', { class: 'ui-input' }, 'Australia', h('em', null, '✓')));
     case 'mapname': return A('shape gold', shapeSvg('bo', 'art-shape'), h('span', { class: 'art-chip' }, 'Name it'));
     case 'borders': return A('shape', shapeSvg('es', 'art-shape'), h('span', { class: 'art-chips' }, h('i', { class: 'ok' }, 'France'), h('i', null, '?'), h('i', null, '?')));
     case 'flagmap': return A('flagpin', artFlag('ca'), h('span', { class: 'art-pin' }, '📍'));
-    case 'duel': return A('vs', artFlag('eg'), h('b', null, '⚖️'), artFlag('ng'));
-    case 'lang': return A('quote', h('b', null, '"Alle Menschen sind frei…"'), h('small', null, 'Which language?'));
+    case 'duel': return A('vs', h('span', { class: 'ui-pick ok' }, artFlag('eg'), h('small', null, 'Egypt')), h('b', null, '⚖️'), h('span', { class: 'ui-pick' }, artFlag('ng'), h('small', null, 'Nigeria')));
+    case 'lang': return A('quote', h('b', null, '"Alle Menschen sind frei…"'), h('span', { class: 'ui-opts' }, h('i', { class: 'ok' }, 'German'), h('i', null, 'Dutch'), h('i', null, 'Danish'), h('i', null, 'Swedish')));
     case 'chain': return A('chain', artFlag('fr'), h('i', { class: 'ok' }, 'Germany'), artFlag('pl'));
     case 'all': return A('list', ...['France', 'Spain', 'Italy', 'Peru', '?', '?'].map((n) => h('i', { class: n === '?' ? '' : 'ok' }, n)));
     case 'hot': return A('globe', h('span', { class: 'art-ball' }, h('i', { style: { left: '30%', top: '35%', background: '#b30000' } }), h('i', { style: { left: '55%', top: '55%', background: '#fc8d59' } }), h('i', { style: { left: '42%', top: '68%', background: '#fdd49e' } })));
     case 'closer': return A('closer', artFlag('jp'), h('small', null, 'closer?'), h('span', { class: 'art-two' }, artFlag('ph'), artFlag('th')));
     case 'clues': return A('clues', h('i', null, '📐 About 88,000 km²'), h('i', null, '🏖️ Landlocked'), h('i', { class: 'dim' }, '🗣️ ?'));
     case 'letter': return A('letter', h('b', null, 'S'), h('span', { class: 'art-chips' }, h('i', { class: 'ok' }, 'Spain'), h('i', { class: 'ok' }, 'Sudan'), h('i', null, '?')));
-    case 'scramble': return A('scramble', ...'NDEWES'.split('').map((c) => h('i', null, c)));
-    case 'flagpick': return A('grid six', ...['ie', 'ci', 'it', 'mx', 'in', 'ne'].map((id, k) => { const im = artFlag(id); if (!k) im.classList.add('hit'); return im; }));
+    case 'scramble': return A('ui', h('span', { class: 'art-scramble' }, ...'NDEWES'.split('').map((c) => h('i', null, c))), h('span', { class: 'ui-input' }, 'Sweden', h('em', null, '✓')));
+    case 'flagpick': return A('flagpick', h('span', { class: 'art-chip top' }, 'Find: Ireland'), h('span', { class: 'art-grid six' }, ...['ci', 'ie', 'it', 'mx', 'in', 'ne'].map((id) => { const im = artFlag(id); if (id === 'ie') im.classList.add('hit'); return im; })));
     default: return A('text', h('b', null, gameOf(g).em));
   }
 }
@@ -402,9 +454,10 @@ function gameBrowser(st, done) {
   const addBtn = (g, big) => { const on = st.games.includes(g); return h('button', { class: 'gb-add' + (on ? ' on' : '') + (big ? ' big' : ''), 'aria-label': (on ? 'Remove ' : 'Add ') + gameOf(g).label, onclick: (e) => { e.stopPropagation(); toggle(g); } }, on ? (big ? '✓ In your run' : '✓') : (big ? '＋ Add to run' : '＋')); };
   function draw() {
     const head = h('div', { class: 'gb-head' },
-      open ? h('button', { class: 'iconbtn', 'aria-label': 'Back to all games', onclick: () => { open = null; draw(); } }, '←') : h('span', { class: 'iconspace' }),
+      open ? h('button', { class: 'iconbtn', 'aria-label': 'Back', onclick: () => { open = null; draw(); } }, '←') : h('span', { class: 'iconspace' }),
       h('b', null, open ? gameOf(open).label : 'Games' + (st.games.length ? ' · ' + st.games.length + ' picked' : '')),
-      h('button', { class: 'iconbtn', 'aria-label': 'Done', onclick: close }, '✕'));
+      // In a game's details, ✕ goes back to all the games (owner); on the list it closes the browser.
+      h('button', { class: 'iconbtn', 'aria-label': open ? 'Back to all games' : 'Done', onclick: () => { if (open) { open = null; draw(); } else close(); } }, '✕'));
     if (open) {
       const info = GAME_INFO[open] || [gameOf(open).desc, ''];
       sheet.replaceChildren(head, h('div', { class: 'gb-detail' }, h('div', { class: 'gb-art big' }, gameArt(open)),
@@ -423,4 +476,6 @@ function gameBrowser(st, done) {
   draw();
   document.addEventListener('keydown', onKey, true);
   document.body.appendChild(bg);
+  // Real map and globe pictures: fetch them, then redraw (cards show simple pictures until then).
+  Promise.all([loadMap().catch(() => null), needGlobe().catch(() => null)]).then(() => { if (bg.isConnected) { const y = sheet.scrollTop; draw(); sheet.scrollTop = y; } });
 }

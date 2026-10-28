@@ -252,6 +252,10 @@ function quickRun() {
       stage.replaceChildren(...[kindChip, im].filter(Boolean));
     } else if (q.kind === 'shape') {
       stage.replaceChildren(...[kindChip, h('span', { class: 'reg' }, regionLabel(c.region)), shapeSvg(q.id, 'shape')].filter(Boolean));
+    } else if (q.kind === 'revcap') {
+      stage.replaceChildren(h('div', { class: 'ask' }, 'Country with the capital'), h('div', { class: 'big' }, c.capital));
+    } else if (q.kind === 'scramble') {
+      stage.replaceChildren(h('div', { class: 'ask' }, 'Unscramble'), h('div', { class: 'scramble' }, q.scr.split(' ').map((w) => h('span', { class: 'word' }, w.split('').map((ch) => h('b', null, ch))))));
     } else {
       stage.replaceChildren(...[kindChip, h('div', { class: 'ask' }, 'Capital of'), h('div', { class: 'big' }, c.name)].filter(Boolean));
     }
