@@ -55,6 +55,7 @@ function versus(score, ch, kind) {
   return h('p', { class: 'versus ' + (win ? 'win' : lose ? 'lose' : '') }, win ? 'You beat ' + ch.name + why + '! 🏆' : lose ? ch.name + ' wins' + why + '.' : 'Dead heat with ' + ch.name + '!');
 }
 function result(score) {
+  document.querySelectorAll('.livebar').forEach((e) => e.remove());
   const se = S.session, many = se.players.length > 1, last = se.idx >= se.players.length - 1, board = se.cfg.kind === 'board';
   mount(h('div', { class: 'app' },
     topbar(cfgLabel(se.cfg), null),
@@ -73,13 +74,14 @@ function result(score) {
       board ? h('div', { class: 'stat' }, h('b', null, String(score.sections.length)), h('span', null, score.sections.length > 1 ? 'Games' : 'Game')) : h('div', { class: 'stat' }, h('b', null, '+' + score.pen / 1000 + 's'), h('span', null, 'Penalty'))),
     many && !last ? h('button', { class: 'btn primary', onclick: () => { se.idx++; cover(); } }, 'Next: ' + se.players[se.idx + 1] + ' →') : null,
     many && last ? h('button', { class: 'btn primary', onclick: leaderboard }, '🏁 See who won') : null,
-    !many && !se.practice ? h('div', { class: 'card sky' },
+    se.live ? liveResults() : null,
+    !many && !se.practice && !se.live ? h('div', { class: 'card sky' },
       h('p', { class: 'eyebrow' }, 'Challenge a friend'),
       h('div', { class: 'code num' }, encodeCode(se.cfg)),
       !S.myName && score.name === 'You' ? nameField() : null,
       h('button', { class: 'btn primary small', onclick: () => { if (score.name === 'You' && S.myName) score.name = S.myName; share(se.cfg, score); } }, '📤 Send challenge')) : null,
     h('div', { class: 'stack' }, board ? score.sections.map(missedBoard) : missedQuick(score)),
-    !many ? afterButtons() : null,
+    se.live ? h('button', { class: 'btn ghost small', onclick: () => home() }, '⌂ Leave room') : !many ? afterButtons() : null,
   ));
 }
 function afterButtons() {

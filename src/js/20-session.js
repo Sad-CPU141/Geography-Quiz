@@ -82,6 +82,7 @@ function finishRun(score) {
   const se = S.session;
   score.kind = se.cfg.kind;
   se.scores.push(score);
+  if (se.live) liveFinished(score);
   store.set('gs_misses_v1', recordMisses(store.get('gs_misses_v1', {}), score));
   if (se.practice) { result(score); return; } // practice: no best times, no daily score
   // Daily run: the first finished go of the day is the one that counts.
@@ -100,6 +101,7 @@ function boardRun() {
   const se = S.session;
   const R = { clock: makeClock(), sec: 0, results: [] };
   se.run = R;
+  if (se.live) liveReporter(R);
   playSection(R);
 }
 function playSection(R) {

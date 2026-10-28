@@ -9,3 +9,5 @@ Licence texts are in `licenses/` and `fonts/`.
 
 The country list is the UN member states except Israel (left out by the owner), the two UN observer states (Vatican City, Palestine), Kosovo and Taiwan: 196 in total.
 Where a country has more than one capital or a separate seat of government (e.g. Bolivia, South Africa, Netherlands, Sri Lanka, Malaysia, Benin, Ivory Coast, Tanzania, Eswatini, Palestine), each of them is accepted.
+
+- **Online race:** Firebase JavaScript SDK (Google), Apache License 2.0, self-hosted in `vendor/firebase/` (see `NOTICE.txt`).

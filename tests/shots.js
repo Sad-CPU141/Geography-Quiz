@@ -61,7 +61,8 @@ async function typeActive(page, kind) {
 async function tapCountry(page, id) {
   for (let z = 0; z < 8; z++) {
     const pt = await page.evaluate((id) => {
-      const els = [...document.querySelectorAll('.map [data-id="' + id + '"]')].filter((e) => e.style.display !== 'none' && e.getBoundingClientRect().width > 0).reverse(); // dots/boxes first
+      let els = [...document.querySelectorAll('.map [data-id="' + id + '"]')].filter((e) => e.style.display !== 'none' && e.getBoundingClientRect().width > 0).reverse(); // dots/boxes first
+      if (!els.length) els = [...document.querySelectorAll('.map path[data-id="' + id + '"]')];
       const wrap = document.querySelector('.mapwrap').getBoundingClientRect();
       const inside = (x, y) => x > wrap.left + 2 && x < wrap.right - 2 && y > wrap.top + 2 && y < wrap.bottom - 2 && !(x > wrap.right - 64 && y < wrap.top + 175); // not under the zoom buttons
       let zoomAt = null;
@@ -334,6 +335,64 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     ok(errors.length === 0, 'practice: no page errors ' + JSON.stringify(errors));
     await ctx.close();
     if (only === 'practice') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }
+  }
+
+  // Online race with the local stand-in backend (?net=local; two tabs of one browser share it): host makes a
+  // room, a friend joins by link, both race the same board, standings update live, results show both.
+  if (!only || only === 'live') {
+    const ctx = await b.newContext({ viewport: { width: 360, height: 780 }, deviceScaleFactor: 2 });
+    const A = await ctx.newPage(), B = await ctx.newPage();
+    const errors = []; [A, B].forEach((p) => p.on('pageerror', (e) => errors.push(e.message)));
+    await A.goto(BASE + '?net=local');
+    await setupBoard(A, ['Flags'], 'Oceania');
+    await A.click('.opt:has-text("Online")');
+    await A.fill('input[placeholder="Name"]', 'Xrazt');
+    await A.click('button:has-text("Create room")');
+    await A.waitForSelector('.roomcode');
+    const code = (await A.textContent('.roomcode')).trim();
+    ok(/^[A-Z]{5}$/.test(code), 'room made: ' + code);
+    await B.goto(BASE + '?net=local&room=' + code);
+    await B.waitForSelector('.input.code');
+    ok((await B.inputValue('.input.code')) === code, 'invite link fills in the code');
+    await B.fill('input[placeholder="Name"]', 'Sam');
+    await B.click('button:has-text("Join")');
+    await B.waitForSelector('.roomcode');
+    await A.waitForFunction(() => document.querySelectorAll('.list.board li').length === 2);
+    ok(true, 'host sees 2 players');
+    await A.screenshot({ path: path.join(outDir, 'live-lobby.png') });
+    ok(!(await B.isVisible('button:has-text("Start race")')), 'only the host can start');
+    await A.click('button:has-text("Start race")');
+    await Promise.all([A.waitForSelector('.tile.active', { timeout: 9000 }), B.waitForSelector('.tile.active', { timeout: 9000 })]);
+    const oa = await A.$$eval('.tile', (ts) => ts.map((t) => t.dataset.id)), ob = await B.$$eval('.tile', (ts) => ts.map((t) => t.dataset.id));
+    ok(JSON.stringify(oa) === JSON.stringify(ob), 'both got the same board');
+    await B.bringToFront();
+    for (let i = 0; i < 3; i++) await typeActive(B, 'flag');
+    await B.waitForTimeout(800); // let Sam's phone send its progress (a background tab's timers are throttled)
+    await A.bringToFront();
+    for (let i = 0; i < 5; i++) await typeActive(A, 'flag');
+    await B.waitForFunction(() => /Xrazt 5\/14/.test((document.querySelector('.livebar') || {}).textContent || ''), null, { timeout: 5000 }).catch(() => {});
+    ok(/5\/14/.test(await B.textContent('.livebar')), 'live bar on Sam\'s phone shows Xrazt 5/14: ' + (await B.textContent('.livebar')));
+    await B.screenshot({ path: path.join(outDir, 'live-playing.png') });
+    for (let i = 0; i < 9; i++) { if (!(await A.$('.tile.active'))) break; await typeActive(A, 'flag'); }
+    await A.waitForSelector('.result-time');
+    await A.waitForFunction(() => /playing · 3\/14/.test(document.querySelector('.card.sky') ? document.querySelector('.card.sky').textContent : ''), null, { timeout: 8000 }).catch(() => {});
+    const acard = await A.textContent('.card.sky'); ok(/playing · 3\/14/.test(acard), 'Xrazt\'s results show Sam still playing 3/14 (' + acard + ')');
+    await B.bringToFront();
+    await B.click('button:has-text("Give up")'); await B.click('button:has-text("Give up and show me")'); await B.click('button:has-text("See results")');
+    await B.waitForSelector('.result-time');
+    await B.waitForFunction(() => document.querySelectorAll('.card.sky .list li').length === 2 && !/still playing/.test(document.querySelector('.card.sky').textContent), null, { timeout: 4000 });
+    const order = await B.$$eval('.card.sky .list li .q', (els) => els.map((e) => e.firstChild.textContent));
+    ok(order[0].startsWith('Xrazt') && order[1].startsWith('Sam'), 'final standings: ' + order.join(', '));
+    await B.screenshot({ path: path.join(outDir, 'live-results.png'), fullPage: true });
+    // Another round: the host restarts, both start again with a new order.
+    await A.bringToFront();
+    await A.click('button:has-text("Another round")');
+    await Promise.all([A.waitForSelector('.tile.active', { timeout: 9000 }), B.waitForSelector('.tile.active', { timeout: 9000 })]);
+    const oa2 = await A.$$eval('.tile', (ts) => ts.map((t) => t.dataset.id));
+    ok(JSON.stringify(oa2) !== JSON.stringify(oa) && JSON.stringify(oa2) === JSON.stringify(await B.$$eval('.tile', (ts) => ts.map((t) => t.dataset.id))), 'another round: new board, same for both');
+    ok(errors.length === 0, 'online race: no page errors ' + JSON.stringify(errors));
+    await ctx.close();
+    if (only === 'live') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }
   }
 
   // Islands: Oceania and the Caribbean on a phone, tapping each island country's ring (a little off-centre,

@@ -14,6 +14,7 @@ A Game Night game: geography against the clock.
 - **Quick fire**: one question at a time, type it or pick from 4, with time penalties.
 - Regions: World (196), Africa, Asia, Europe, North & Central America, South America, Oceania.
 - **Challenge a friend:** every run has an 8-character code. Send the link and your friend gets exactly the same run, with your score to beat.
+- **Online race:** one phone makes a room, friends join with the 5-letter code or link, and everyone races the same run at the same time with live standings (Firebase).
 - **Pass the phone:** 2–8 players take turns on the same run, then see a leaderboard.
 - Best times are kept on the device. Works offline once opened.
 
