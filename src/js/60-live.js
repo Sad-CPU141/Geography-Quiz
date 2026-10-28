@@ -194,7 +194,7 @@ function liveLobby(code) {
     h('div', { class: 'center stack', style: { gap: '4px' } }, h('p', { class: 'eyebrow' }, 'Room'), h('div', { class: 'code roomcode' }, code), what),
     qrBox,
     h('div', { class: 'linkrow' }, h('input', { class: 'input', readonly: true, value: liveLink(code), 'aria-label': 'Join link', onfocus: (e) => e.target.select() }),
-      h('button', { class: 'btn ghost small', onclick: async () => { try { await navigator.clipboard.writeText(liveLink(code)); toast('Link copied'); } catch (e) { prompt('Copy the link:', liveLink(code)); } } }, 'Copy')),
+      h('button', { class: 'btn ghost small', onclick: async () => { try { await navigator.clipboard.writeText(liveLink(code)); toast('Link copied'); } catch (e) { copyBox('Copy the link', liveLink(code)); } } }, 'Copy')),
     h('button', { class: 'btn ghost small', onclick: () => shareRoom(code) }, '📤 Share'),
     list, startBtn, wait));
   qrSvg(liveLink(code)).then((svg) => qrBox.replaceChildren(svg)).catch(() => qrBox.remove());
@@ -212,7 +212,7 @@ function liveLobby(code) {
 async function shareRoom(code) {
   const url = liveLink(code), text = 'Race me in Geography Speedrun! Room ' + code;
   if (navigator.share) { try { await navigator.share({ title: 'Geography Speedrun race', text, url }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
-  try { await navigator.clipboard.writeText(text + '\n' + url); toast('Invite copied'); } catch (e) { prompt('Send this link:', url); }
+  try { await navigator.clipboard.writeText(text + '\n' + url); toast('Invite copied'); } catch (e) { copyBox('Send this link', url); }
 }
 // Host: start (or restart) the race 4 seconds from now, for everyone. A new round gets a new order.
 async function liveStartRound() {

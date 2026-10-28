@@ -154,7 +154,7 @@ function langGame(api) {
   function count() { foundEl.textContent = res.found.length + ' / ' + sec.ids.length + ' right · round ' + Math.min(i + 1, sec.ids.length); }
   function draw() {
     const k = sec.ids[i];
-    arena.replaceChildren(h('p', { class: 'eyebrow center' }, 'Which language?'), langQuote(k),
+    arena.replaceChildren(h('p', { class: 'eyebrow center' }, 'Which language?'), langQuote(k), h('div', { class: 'lang-where' }),
       h('div', { class: 'lang-opts' }, sec.opts[k].map((o, n) => h('button', { class: 'duel-pick lang-pick', 'data-id': o, onclick: () => pick(o) },
         h('b', null, LANG_BY[o].name), h('span', { class: 'key' }, String(n + 1))))));
   }
@@ -167,6 +167,7 @@ function langGame(api) {
       const b = btn.getAttribute('data-id');
       btn.classList.add(b === k ? 'right' : b === o ? 'wrong' : 'other');
     });
+    arena.querySelector('.lang-where').replaceChildren(...spokenIn(k));
     count();
     setTimeout(() => {
       busy = false; api.R.clock.resume(); i++;
@@ -189,6 +190,12 @@ function langGame(api) {
       footer.hidden = false; footer.replaceChildren(btn);
     },
   };
+}
+// After you answer: the flags of the countries where it's official (up to 10, then "+n").
+function spokenIn(k) {
+  const cs = LANG_BY[k].countries.filter((c) => BY_ID[c]);
+  return [h('span', { class: 'small muted' }, 'Spoken in')].concat(cs.slice(0, 10).map((c) => h('img', { src: BY_ID[c].flag, alt: BY_ID[c].name, title: BY_ID[c].name, height: 22, width: Math.round(22 * BY_ID[c].ratio) })),
+    cs.length > 10 ? [h('span', { class: 'small muted' }, '+' + (cs.length - 10))] : []);
 }
 // Language name + its sentence (results and give up).
 function langList(keys) {

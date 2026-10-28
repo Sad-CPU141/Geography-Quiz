@@ -8,7 +8,7 @@ async function share(cfg, score) {
   const text = score.name + ' ran Geography Speedrun (' + cfgLabel(cfg) + (S.session && S.session.help ? ', with spelling help' : '') + '): ' + score.correct + '/' + score.total + ' in ' + fmtTime(score.time) + '. Beat it! Code: ' + encodeCode(cfg);
   if (navigator.share) { try { await navigator.share({ title: 'Geography Speedrun challenge', text, url }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
   try { await navigator.clipboard.writeText(text + '\n' + url); toast('Challenge link copied'); }
-  catch (e) { prompt('Copy this link and send it:', url); }
+  catch (e) { copyBox('Copy this link and send it', url); }
 }
 
 // What you missed, per game.
@@ -67,7 +67,7 @@ function result(score) {
       se.practice ? h('p', { class: 'small muted' }, '🧘 Practice') : null,
       score.best ? h('div', null, h('span', { class: 'badge' }, '★ New best on this device')) : null,
       se.help ? h('p', { class: 'small muted' }, '💡 With spelling help') : null,
-      se.daily != null ? h('p', { class: 'small muted' }, '📅 Daily · ' + dayLabel(se.daily) + (score.dailyFirst ? '' : ' · replay')) : null),
+      se.daily != null ? h('p', { class: 'small muted' }, '📅 Daily · ' + dayLabel(se.daily)) : null),
     se.daily != null ? h('button', { class: 'btn gold small', onclick: () => shareDaily(se.daily, store.get('gs_daily_v1', {})[se.daily] || score) }, '📤 Share today\'s result') : null,
     versus(score, se.challenge, se.cfg.kind),
     h('div', { class: 'stats' },
@@ -91,7 +91,7 @@ function afterButtons() {
   return h('div', { class: 'stack' },
     h('div', { class: 'row' },
       h('button', { class: 'btn primary small', onclick: () => startSession(Object.assign({}, se.cfg, { seed: newSeed() }), se.players, null, null, se.practice) }, '🎲 Play again'),
-      h('button', { class: 'btn ghost small', onclick: () => startSession(se.cfg, se.players, se.challenge, se.daily, se.practice) }, '↻ Same order')),
+      se.daily == null ? h('button', { class: 'btn ghost small', onclick: () => startSession(se.cfg, se.players, se.challenge, se.daily, se.practice) }, '↻ Same order') : null),
     h('div', { class: 'row' },
       h('button', { class: 'btn ghost small', onclick: setup }, '⚙ Change'),
       h('button', { class: 'btn ghost small', onclick: home }, '⌂ Home')));
@@ -107,6 +107,6 @@ function leaderboard() {
       h('span', { class: 'rank' }, String(i + 1)),
       h('div', { class: 'q' }, s.name, h('small', null, s.correct + '/' + s.total + (se.cfg.kind === 'board' ? ' found' : ' right · +' + s.pen / 1000 + 's penalty'))),
       h('div', { class: 't' }, fmtTime(s.time), i && s.correct === ranked[0].correct ? h('small', null, '+' + fmtDiff(s.time - ranked[0].time)) : null)))),
-    h('button', { class: 'btn ghost small', onclick: async () => { try { await navigator.clipboard.writeText(resultText); toast('Results copied'); } catch (e) { prompt('Copy the results:', resultText); } } }, '📋 Copy results'),
+    h('button', { class: 'btn ghost small', onclick: async () => { try { await navigator.clipboard.writeText(resultText); toast('Results copied'); } catch (e) { copyBox('Copy the results', resultText); } } }, '📋 Copy results'),
     afterButtons()));
 }

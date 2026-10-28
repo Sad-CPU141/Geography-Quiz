@@ -16,6 +16,8 @@ function loadMap() {
 }
 
 function startSession(cfg, players, challenge, daily, practice) {
+  // One go at the daily run per day on this device.
+  if (daily != null && store.get('gs_daily_v1', {})[daily]) { dailyResult(daily); return; }
   S.challenge = null;
   // Practice: board runs you started yourself (never a daily or a friend's challenge), or a misses drill.
   const pr = practice != null ? practice : !!S.setup.practice && cfg.kind === 'board' && daily == null && !challenge;
@@ -36,7 +38,7 @@ function howTo(cfg) {
 }
 function cover() {
   const se = S.session, name = se.players[se.idx], many = se.players.length > 1;
-  mount(h('div', { class: 'app' }, topbar(cfgLabel(se.cfg), () => { if (confirm('Leave this run?')) home(); }),
+  mount(h('div', { class: 'app' }, topbar(cfgLabel(se.cfg), () => { if (se.scores.length) ask('Leave?', 'Leave', home, 'The scores so far will be lost.'); else home(); }),
     h('div', { class: 'cover' },
       many ? h('p', { class: 'eyebrow' }, 'Player ' + (se.idx + 1) + ' of ' + se.players.length) : null,
       h('h2', { class: 'display', style: { fontSize: many ? '54px' : '42px' } }, many ? (se.idx ? 'Pass to ' : '') + name : 'Ready?'),
@@ -46,7 +48,15 @@ function cover() {
       h('button', { class: 'btn primary', style: { maxWidth: '320px' }, onclick: countdown }, '▶ Go')),
   ));
 }
+// ✕ in a run: the site's own "are you sure?" box.
+function quitRun(leave) {
+  if (S.session && S.session.daily != null) ask('Leave today\'s run?', 'Leave', leave, 'You can\'t play it again today.');
+  else ask('Stop this run?', 'Stop', leave, 'It won\'t count.');
+}
 function countdown() {
+  // Pressing Go uses up today's daily run (leaving early still counts as your go).
+  const se = S.session;
+  if (se.daily != null && se.idx === 0) { const d = store.get('gs_daily_v1', {}); if (!d[se.daily]) { d[se.daily] = { left: true }; store.set('gs_daily_v1', d); } }
   const go = () => {
     let n = 3; const el = h('div', { class: 'cd', 'aria-live': 'assertive' }, '3');
     mount(h('div', { class: 'app' }, h('div', { class: 'cover' }, el)));
@@ -88,7 +98,11 @@ function finishRun(score) {
   // Daily run: the first finished go of the day is the one that counts.
   if (se.daily != null && se.idx === 0) {
     const d = store.get('gs_daily_v1', {});
-    if (!d[se.daily]) { d[se.daily] = { time: score.time, correct: score.correct, total: score.total }; store.set('gs_daily_v1', d); score.dailyFirst = true; }
+    if (!d[se.daily] || d[se.daily].time == null) {
+      d[se.daily] = { time: score.time, correct: score.correct, total: score.total,
+        sections: (score.sections || []).map((s) => ({ game: s.game, kind: s.kind, ids: s.ids, found: s.found, missed: s.missed, gaveUp: !!s.gaveUp, skipped: !!s.skipped, tries: s.tries || {} })) };
+      store.set('gs_daily_v1', d); score.dailyFirst = true;
+    }
   }
   const k = bestKey(se.cfg), b = store.get('gs_best_v2', {});
   score.best = !b[k] || better(score, b[k], se.cfg.kind);
@@ -113,7 +127,7 @@ function playSection(R) {
     // Called by the game when every country is found.
     done() { R.clock.pause(); api.ui && api.ui.completed && api.ui.completed(); setTimeout(() => { R.clock.resume(); nextSection(R); }, 700); },
     giveUp: () => giveUpDialog(R, api),
-    quit: () => { if (confirm('Stop this run? It won\'t count.')) { R.clock.over = true; home(); } },
+    quit: () => quitRun(() => { R.clock.over = true; home(); }),
   };
   api.ui = MAP_GAMES.has(sec.game) ? mapGame(api) : sec.game === 'borders' ? bordersGame(api) : sec.game === 'duel' ? duelGame(api) : sec.game === 'lang' ? langGame(api) : gridGame(api);
 }
@@ -185,7 +199,7 @@ function quickRun() {
     choicesEl = h('div', { class: 'choices' });
     answerArea.append(choicesEl);
   }
-  const quit = h('button', { class: 'iconbtn', 'aria-label': 'Stop the run', onclick: () => { if (confirm('Stop this run? It won\'t count.')) { clock.over = true; home(); } } }, '✕');
+  const quit = h('button', { class: 'iconbtn', 'aria-label': 'Stop the run', onclick: () => quitRun(() => { clock.over = true; home(); }) }, '✕');
   mount(h('div', { class: 'app run' },
     h('div', { class: 'hud' }, quit, countEl, timerEl, penEl),
     h('div', { class: 'bar' }, barEl),

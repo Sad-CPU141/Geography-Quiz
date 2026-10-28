@@ -241,10 +241,14 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await page.waitForTimeout(600);
     ok(loads === 1 && await page.$('.tile.active') !== null, 'update: no reload in the middle of a run');
     // Going home picks it up.
-    await page.click('button[aria-label="Leave"], .iconbtn').catch(() => {});
-    page.once('dialog', (d) => d.accept());
-    await page.waitForTimeout(100);
-    await page.evaluate(() => document.querySelector('.boardhead .iconbtn, .iconbtn') && document.querySelector('.boardhead .iconbtn, .iconbtn').click());
+    let browserDialog = false; page.on('dialog', (d) => { browserDialog = true; d.dismiss(); });
+    await page.click('.iconbtn');
+    await page.waitForSelector('.modal'); await page.waitForTimeout(300);
+    await page.screenshot({ path: path.join(outDir, 'leave-dialog.png') });
+    ok(!browserDialog && /Stop this run\?/.test(await page.textContent('.modal')), 'leave: the site\'s own dialog, not the browser\'s');
+    await page.keyboard.press('Escape');
+    ok(!(await page.$('.modal')) && await page.$('.tile.active') !== null, 'leave: Escape / Cancel keeps playing');
+    await page.click('.iconbtn'); await page.click('.modal button:has-text("Stop")');
     await page.waitForTimeout(1200);
     ok(loads === 2, 'update: going home reloads once (' + loads + ' loads)');
     await page.waitForSelector('[data-screen="home"]');
@@ -393,11 +397,29 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await page.waitForSelector('button:has-text("Give up")');
     await page.click('button:has-text("Give up")'); await page.click('button:has-text("End the whole run")'); await page.click('button:has-text("See results")');
     await page.waitForSelector('.result-time');
-    const dtxt = await page.textContent('body'); ok(dtxt.includes('📅 Daily') && !dtxt.includes('· replay'), 'daily: first go counts');
+    const dtxt = await page.textContent('body'); ok(dtxt.includes('📅 Daily'), 'daily: first go counts');
+    ok(!(await page.$('button:has-text("Same order")')), 'daily: no "Same order" replay on the results');
     await page.click('button:has-text("Home")');
     await page.waitForSelector('.card.daily');
     ok(/Your score today: 0\//.test(await page.textContent('.card.daily')), 'daily: home shows today\'s score');
+    ok(!(await page.$('.card.daily button:has-text("Play")')), 'daily: can\'t play it again today');
     await page.screenshot({ path: path.join(outDir, 'daily-done.png') });
+    // Tapping the card shows how you did, with what you missed per game.
+    await page.click('.card.daily .daily-what');
+    await page.waitForSelector('[data-screen="daily"] .result-time');
+    ok(await page.$$eval('[data-screen="daily"] .eyebrow', (e) => e.length) >= 2, 'daily: result screen lists each game');
+    await page.screenshot({ path: path.join(outDir, 'daily-result.png'), fullPage: true });
+    await page.click('button:has-text("Home")');
+    // A fresh device-day where you press Go then leave: that's your go for the day.
+    await page.evaluate(() => { localStorage.removeItem('gs_daily_v1'); });
+    await page.reload(); await page.waitForSelector('.card.daily');
+    await page.click('.card.daily button:has-text("Play today")'); await page.click('button:has-text("Go")');
+    await page.waitForSelector('button:has-text("Give up")');
+    await page.click('.iconbtn'); await page.waitForSelector('.modal');
+    ok(/today/.test(await page.textContent('.modal')), 'daily: leaving warns it\'s your one go');
+    await page.click('.modal button:has-text("Leave")');
+    await page.waitForSelector('.card.daily');
+    ok(/left today's run early/.test(await page.textContent('.card.daily')) && !(await page.$('.card.daily button:has-text("Play")')), 'daily: leaving early uses up the day');
     ok(errors.length === 0, 'daily: no page errors ' + JSON.stringify(errors));
     await ctx.close();
     if (only === 'more') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }

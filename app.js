@@ -1,7 +1,7 @@
-/* Geography Speedrun 3368fac089 — built from src/js/ by build.js. Edit src/, not this file. */
+/* Geography Speedrun 6a539ef8ce — built from src/js/ by build.js. Edit src/, not this file. */
 (function () {
 'use strict';
-const APP_VERSION = "3368fac089";
+const APP_VERSION = "6a539ef8ce";
 /* ---- core: data, answer matching, runs, challenge codes (no DOM; tested by tests/run.js) ---- */
 const DATA = window.GS_DATA.countries;
 const BY_ID = Object.fromEntries(DATA.map((c) => [c.id, c]));
@@ -409,9 +409,30 @@ function optRow(label, on, onSet) {
     h('button', { class: 'switch', role: 'switch', 'aria-checked': String(on), 'aria-label': label, onclick: () => onSet(!on) }, h('i')));
 }
 function modal(...kids) {
-  const bg = h('div', { class: 'modal-bg', onclick: (e) => { if (e.target === bg) bg.remove(); } }, h('div', { class: 'card modal' }, ...kids));
+  const bg = h('div', { class: 'modal-bg', onclick: (e) => { if (e.target === bg) close(); } }, h('div', { class: 'card modal', role: 'dialog', 'aria-modal': 'true' }, ...kids));
+  const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); } };
+  function close() { document.removeEventListener('keydown', onKey, true); bg.remove(); }
+  bg.close = close;
+  // remove() from anywhere also drops the Escape listener.
+  const rm = bg.remove.bind(bg); bg.remove = () => { document.removeEventListener('keydown', onKey, true); rm(); };
+  document.addEventListener('keydown', onKey, true);
   document.body.appendChild(bg);
   return bg;
+}
+// The site's own "are you sure?" box (instead of the browser's confirm()).
+function ask(title, yesLabel, onYes, note) {
+  let bg = null;
+  const no = h('button', { class: 'btn ghost small', onclick: () => bg.remove() }, 'Cancel');
+  bg = modal(h('h2', { class: 'display', style: { fontSize: '30px' } }, title), note ? h('p', { class: 'small muted' }, note) : null,
+    h('button', { class: 'btn danger small', onclick: () => { bg.remove(); onYes(); } }, yesLabel), no);
+  no.focus();
+}
+// When copying isn't allowed: show the text to copy by hand (instead of the browser's prompt()).
+function copyBox(title, text) {
+  const ta = h('textarea', { class: 'copybox', readonly: true, rows: Math.min(6, text.split('\n').length + 1) });
+  ta.value = text;
+  const bg = modal(h('p', { class: 'eyebrow' }, title), ta, h('button', { class: 'btn primary small', onclick: () => bg.remove() }, 'Done'));
+  ta.focus(); ta.select();
 }
 
 /* ---------------- app state ---------------- */
@@ -467,24 +488,45 @@ function home() {
 }
 
 // The Daily run: same for everyone today. Your first go counts; you can replay, but the score stays.
+// The daily run can be played once per day on a device. Once you've pressed Go it's used up (leaving early
+// counts); after that the card opens your result instead.
 function dailyCard() {
   const day = todayNum(), cfg = dailyCfg(day), mine = store.get('gs_daily_v1', {})[day];
   let streak = 0; const all = store.get('gs_daily_v1', {});
   for (let d = day; all[d]; d--) streak++;
-  return h('div', { class: 'card daily' },
+  const done = mine && mine.time != null;
+  return h('div', { class: 'card daily' + (mine ? ' played' : ''), onclick: mine ? (e) => { if (!e.target.closest('button')) dailyResult(day); } : null },
     h('div', { class: 'daily-top' }, h('p', { class: 'eyebrow' }, '📅 Daily run · ' + dayLabel(day)), streak > 1 ? h('span', { class: 'badge' }, '🔥 ' + streak + ' days') : null),
     h('div', { class: 'daily-what' }, regionOf(cfg.region).label + ': ' + cfg.games.map((g) => gameOf(g).em + ' ' + gameOf(g).label).join(' → ')),
-    mine ? h('p', null, 'Your score today: ', h('b', null, mine.correct + '/' + mine.total + ' in ' + fmtTime(mine.time))) : h('p', { class: 'small muted' }, 'New run at midnight ET'),
+    done ? h('p', null, 'Your score today: ', h('b', null, mine.correct + '/' + mine.total + ' in ' + fmtTime(mine.time))) : mine ? h('p', null, 'You left today\'s run early') : null,
+    mine ? h('p', { class: 'small muted' }, 'Next run at midnight ET') : h('p', { class: 'small muted' }, 'One go a day · new run at midnight ET'),
     h('div', { class: 'row' },
-      mine ? h('button', { class: 'btn ghost small', onclick: () => shareDaily(day, mine) }, '📤 Share') : null,
-      h('button', { class: 'btn ' + (mine ? 'ghost' : 'gold') + ' small', onclick: () => startSession(cfg, [S.myName || 'You'], null, day) }, mine ? '↻ Play again' : '▶ Play today\'s run')));
+      done ? h('button', { class: 'btn ghost small', onclick: () => shareDaily(day, mine) }, '📤 Share') : null,
+      mine ? h('button', { class: 'btn ghost small', onclick: () => dailyResult(day) }, '📊 How I did') :
+        h('button', { class: 'btn gold small', onclick: () => startSession(cfg, [S.myName || 'You'], null, day) }, '▶ Play today\'s run')));
+}
+// Today's daily result (from the card): time, score and what you missed in each game.
+function dailyResult(day) {
+  const cfg = dailyCfg(day), mine = store.get('gs_daily_v1', {})[day];
+  if (!mine) { home(); return; }
+  const done = mine.time != null;
+  mount(h('div', { class: 'app', 'data-screen': 'daily' }, topbar('📅 Daily · ' + dayLabel(day), home),
+    h('p', { class: 'center muted' }, regionOf(cfg.region).label + ': ' + cfg.games.map((g) => gameOf(g).em + ' ' + gameOf(g).label).join(' → ')),
+    done ? h('div', { class: 'center stack', style: { gap: '6px' } }, h('div', { class: 'result-time' }, fmtTime(mine.time))) : h('p', { class: 'center' }, 'You left this run early.'),
+    done ? h('div', { class: 'stats' },
+      h('div', { class: 'stat' }, h('b', null, mine.correct + '/' + mine.total), h('span', null, 'Found')),
+      h('div', { class: 'stat' }, h('b', null, Math.round(mine.correct / mine.total * 100) + '%'), h('span', null, 'Score'))) : null,
+    done ? h('button', { class: 'btn gold small', onclick: () => shareDaily(day, mine) }, '📤 Share') : null,
+    mine.sections ? h('div', { class: 'stack' }, mine.sections.map(missedBoard)) : null,
+    h('p', { class: 'small muted center' }, 'Next run at midnight ET'),
+    h('button', { class: 'btn ghost small', onclick: home }, '⌂ Home')));
 }
 async function shareDaily(day, mine) {
   const cfg = dailyCfg(day);
   const url = location.origin + location.pathname + '?' + new URLSearchParams({ c: encodeCode(cfg).replace(/-/g, ''), n: S.myName || 'A friend', t: String(mine.time), s: String(mine.correct) }).toString();
   const text = 'Geography Speedrun · Daily ' + dayLabel(day) + '\n' + regionOf(cfg.region).label + ': ' + cfg.games.map((g) => gameOf(g).label).join(' + ') + '\n' + mine.correct + '/' + mine.total + ' in ' + fmtTime(mine.time);
   if (navigator.share) { try { await navigator.share({ title: 'Geography Speedrun daily', text, url }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
-  try { await navigator.clipboard.writeText(text + '\n' + url); toast('Daily result copied'); } catch (e) { prompt('Copy and send:', text + '\n' + url); }
+  try { await navigator.clipboard.writeText(text + '\n' + url); toast('Daily result copied'); } catch (e) { copyBox('Copy and send', text + '\n' + url); }
 }
 
 function nameField() {
@@ -602,7 +644,7 @@ function misses() {
         h('div', { class: 'daily-top' }, h('p', { class: 'eyebrow' }, G.em + ' ' + G.label), h('button', { class: 'btn primary small', style: { width: 'auto' }, onclick: () => practise(g) }, '🧘 Practice')),
         h('ul', { class: 'pairs' }, list.map(([id, n]) => h('li', null, h('span', null, g === 'capitals' ? BY_ID[id].name + ' → ' + BY_ID[id].capital : g === 'revcap' ? BY_ID[id].capital + ' → ' + BY_ID[id].name : BY_ID[id].name), h('b', null, '×' + n)))));
     }) : h('p', { class: 'muted center' }, 'Nothing yet'),
-    games.length ? h('button', { class: 'btn ghost small', onclick: () => { if (confirm('Clear your misses?')) { store.set('gs_misses_v1', {}); misses(); } } }, 'Clear') : null));
+    games.length ? h('button', { class: 'btn ghost small', onclick: () => ask('Clear your misses?', 'Clear', () => { store.set('gs_misses_v1', {}); misses(); }) }, 'Clear') : null));
 }
 
 function bests() {
@@ -612,7 +654,7 @@ function bests() {
     rows.length ? h('ul', { class: 'list board' }, rows.map(([k, v]) =>
       h('li', null, h('div', { class: 'q' }, v.label, h('small', null, v.correct + '/' + v.total + ' right' + (v.name ? ' · ' + v.name : ''))), h('div', { class: 't' }, fmtTime(v.time))))) :
       h('p', { class: 'muted center' }, 'No runs yet. Your best for each kind of run shows up here.'),
-    rows.length ? h('button', { class: 'btn ghost small', onclick: () => { if (confirm('Clear all best times on this device?')) { store.set('gs_best_v2', {}); bests(); } } }, 'Clear best times') : null));
+    rows.length ? h('button', { class: 'btn ghost small', onclick: () => ask('Clear best times?', 'Clear', () => { store.set('gs_best_v2', {}); bests(); }) }, 'Clear best times') : null));
 }
 
 function credits() {
@@ -640,6 +682,8 @@ function loadMap() {
 }
 
 function startSession(cfg, players, challenge, daily, practice) {
+  // One go at the daily run per day on this device.
+  if (daily != null && store.get('gs_daily_v1', {})[daily]) { dailyResult(daily); return; }
   S.challenge = null;
   // Practice: board runs you started yourself (never a daily or a friend's challenge), or a misses drill.
   const pr = practice != null ? practice : !!S.setup.practice && cfg.kind === 'board' && daily == null && !challenge;
@@ -660,7 +704,7 @@ function howTo(cfg) {
 }
 function cover() {
   const se = S.session, name = se.players[se.idx], many = se.players.length > 1;
-  mount(h('div', { class: 'app' }, topbar(cfgLabel(se.cfg), () => { if (confirm('Leave this run?')) home(); }),
+  mount(h('div', { class: 'app' }, topbar(cfgLabel(se.cfg), () => { if (se.scores.length) ask('Leave?', 'Leave', home, 'The scores so far will be lost.'); else home(); }),
     h('div', { class: 'cover' },
       many ? h('p', { class: 'eyebrow' }, 'Player ' + (se.idx + 1) + ' of ' + se.players.length) : null,
       h('h2', { class: 'display', style: { fontSize: many ? '54px' : '42px' } }, many ? (se.idx ? 'Pass to ' : '') + name : 'Ready?'),
@@ -670,7 +714,15 @@ function cover() {
       h('button', { class: 'btn primary', style: { maxWidth: '320px' }, onclick: countdown }, '▶ Go')),
   ));
 }
+// ✕ in a run: the site's own "are you sure?" box.
+function quitRun(leave) {
+  if (S.session && S.session.daily != null) ask('Leave today\'s run?', 'Leave', leave, 'You can\'t play it again today.');
+  else ask('Stop this run?', 'Stop', leave, 'It won\'t count.');
+}
 function countdown() {
+  // Pressing Go uses up today's daily run (leaving early still counts as your go).
+  const se = S.session;
+  if (se.daily != null && se.idx === 0) { const d = store.get('gs_daily_v1', {}); if (!d[se.daily]) { d[se.daily] = { left: true }; store.set('gs_daily_v1', d); } }
   const go = () => {
     let n = 3; const el = h('div', { class: 'cd', 'aria-live': 'assertive' }, '3');
     mount(h('div', { class: 'app' }, h('div', { class: 'cover' }, el)));
@@ -712,7 +764,11 @@ function finishRun(score) {
   // Daily run: the first finished go of the day is the one that counts.
   if (se.daily != null && se.idx === 0) {
     const d = store.get('gs_daily_v1', {});
-    if (!d[se.daily]) { d[se.daily] = { time: score.time, correct: score.correct, total: score.total }; store.set('gs_daily_v1', d); score.dailyFirst = true; }
+    if (!d[se.daily] || d[se.daily].time == null) {
+      d[se.daily] = { time: score.time, correct: score.correct, total: score.total,
+        sections: (score.sections || []).map((s) => ({ game: s.game, kind: s.kind, ids: s.ids, found: s.found, missed: s.missed, gaveUp: !!s.gaveUp, skipped: !!s.skipped, tries: s.tries || {} })) };
+      store.set('gs_daily_v1', d); score.dailyFirst = true;
+    }
   }
   const k = bestKey(se.cfg), b = store.get('gs_best_v2', {});
   score.best = !b[k] || better(score, b[k], se.cfg.kind);
@@ -737,7 +793,7 @@ function playSection(R) {
     // Called by the game when every country is found.
     done() { R.clock.pause(); api.ui && api.ui.completed && api.ui.completed(); setTimeout(() => { R.clock.resume(); nextSection(R); }, 700); },
     giveUp: () => giveUpDialog(R, api),
-    quit: () => { if (confirm('Stop this run? It won\'t count.')) { R.clock.over = true; home(); } },
+    quit: () => quitRun(() => { R.clock.over = true; home(); }),
   };
   api.ui = MAP_GAMES.has(sec.game) ? mapGame(api) : sec.game === 'borders' ? bordersGame(api) : sec.game === 'duel' ? duelGame(api) : sec.game === 'lang' ? langGame(api) : gridGame(api);
 }
@@ -809,7 +865,7 @@ function quickRun() {
     choicesEl = h('div', { class: 'choices' });
     answerArea.append(choicesEl);
   }
-  const quit = h('button', { class: 'iconbtn', 'aria-label': 'Stop the run', onclick: () => { if (confirm('Stop this run? It won\'t count.')) { clock.over = true; home(); } } }, '✕');
+  const quit = h('button', { class: 'iconbtn', 'aria-label': 'Stop the run', onclick: () => quitRun(() => { clock.over = true; home(); }) }, '✕');
   mount(h('div', { class: 'app run' },
     h('div', { class: 'hud' }, quit, countEl, timerEl, penEl),
     h('div', { class: 'bar' }, barEl),
@@ -1513,7 +1569,7 @@ function langGame(api) {
   function count() { foundEl.textContent = res.found.length + ' / ' + sec.ids.length + ' right · round ' + Math.min(i + 1, sec.ids.length); }
   function draw() {
     const k = sec.ids[i];
-    arena.replaceChildren(h('p', { class: 'eyebrow center' }, 'Which language?'), langQuote(k),
+    arena.replaceChildren(h('p', { class: 'eyebrow center' }, 'Which language?'), langQuote(k), h('div', { class: 'lang-where' }),
       h('div', { class: 'lang-opts' }, sec.opts[k].map((o, n) => h('button', { class: 'duel-pick lang-pick', 'data-id': o, onclick: () => pick(o) },
         h('b', null, LANG_BY[o].name), h('span', { class: 'key' }, String(n + 1))))));
   }
@@ -1526,6 +1582,7 @@ function langGame(api) {
       const b = btn.getAttribute('data-id');
       btn.classList.add(b === k ? 'right' : b === o ? 'wrong' : 'other');
     });
+    arena.querySelector('.lang-where').replaceChildren(...spokenIn(k));
     count();
     setTimeout(() => {
       busy = false; api.R.clock.resume(); i++;
@@ -1549,6 +1606,12 @@ function langGame(api) {
     },
   };
 }
+// After you answer: the flags of the countries where it's official (up to 10, then "+n").
+function spokenIn(k) {
+  const cs = LANG_BY[k].countries.filter((c) => BY_ID[c]);
+  return [h('span', { class: 'small muted' }, 'Spoken in')].concat(cs.slice(0, 10).map((c) => h('img', { src: BY_ID[c].flag, alt: BY_ID[c].name, title: BY_ID[c].name, height: 22, width: Math.round(22 * BY_ID[c].ratio) })),
+    cs.length > 10 ? [h('span', { class: 'small muted' }, '+' + (cs.length - 10))] : []);
+}
 // Language name + its sentence (results and give up).
 function langList(keys) {
   return h('ul', { class: 'langlist' }, keys.map((id) => h('li', null, h('b', null, langOf(id).name), langQuote(id, 'lang-small'))));
@@ -1564,7 +1627,7 @@ async function share(cfg, score) {
   const text = score.name + ' ran Geography Speedrun (' + cfgLabel(cfg) + (S.session && S.session.help ? ', with spelling help' : '') + '): ' + score.correct + '/' + score.total + ' in ' + fmtTime(score.time) + '. Beat it! Code: ' + encodeCode(cfg);
   if (navigator.share) { try { await navigator.share({ title: 'Geography Speedrun challenge', text, url }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
   try { await navigator.clipboard.writeText(text + '\n' + url); toast('Challenge link copied'); }
-  catch (e) { prompt('Copy this link and send it:', url); }
+  catch (e) { copyBox('Copy this link and send it', url); }
 }
 
 // What you missed, per game.
@@ -1623,7 +1686,7 @@ function result(score) {
       se.practice ? h('p', { class: 'small muted' }, '🧘 Practice') : null,
       score.best ? h('div', null, h('span', { class: 'badge' }, '★ New best on this device')) : null,
       se.help ? h('p', { class: 'small muted' }, '💡 With spelling help') : null,
-      se.daily != null ? h('p', { class: 'small muted' }, '📅 Daily · ' + dayLabel(se.daily) + (score.dailyFirst ? '' : ' · replay')) : null),
+      se.daily != null ? h('p', { class: 'small muted' }, '📅 Daily · ' + dayLabel(se.daily)) : null),
     se.daily != null ? h('button', { class: 'btn gold small', onclick: () => shareDaily(se.daily, store.get('gs_daily_v1', {})[se.daily] || score) }, '📤 Share today\'s result') : null,
     versus(score, se.challenge, se.cfg.kind),
     h('div', { class: 'stats' },
@@ -1647,7 +1710,7 @@ function afterButtons() {
   return h('div', { class: 'stack' },
     h('div', { class: 'row' },
       h('button', { class: 'btn primary small', onclick: () => startSession(Object.assign({}, se.cfg, { seed: newSeed() }), se.players, null, null, se.practice) }, '🎲 Play again'),
-      h('button', { class: 'btn ghost small', onclick: () => startSession(se.cfg, se.players, se.challenge, se.daily, se.practice) }, '↻ Same order')),
+      se.daily == null ? h('button', { class: 'btn ghost small', onclick: () => startSession(se.cfg, se.players, se.challenge, se.daily, se.practice) }, '↻ Same order') : null),
     h('div', { class: 'row' },
       h('button', { class: 'btn ghost small', onclick: setup }, '⚙ Change'),
       h('button', { class: 'btn ghost small', onclick: home }, '⌂ Home')));
@@ -1663,7 +1726,7 @@ function leaderboard() {
       h('span', { class: 'rank' }, String(i + 1)),
       h('div', { class: 'q' }, s.name, h('small', null, s.correct + '/' + s.total + (se.cfg.kind === 'board' ? ' found' : ' right · +' + s.pen / 1000 + 's penalty'))),
       h('div', { class: 't' }, fmtTime(s.time), i && s.correct === ranked[0].correct ? h('small', null, '+' + fmtDiff(s.time - ranked[0].time)) : null)))),
-    h('button', { class: 'btn ghost small', onclick: async () => { try { await navigator.clipboard.writeText(resultText); toast('Results copied'); } catch (e) { prompt('Copy the results:', resultText); } } }, '📋 Copy results'),
+    h('button', { class: 'btn ghost small', onclick: async () => { try { await navigator.clipboard.writeText(resultText); toast('Results copied'); } catch (e) { copyBox('Copy the results', resultText); } } }, '📋 Copy results'),
     afterButtons()));
 }
 
@@ -1863,7 +1926,7 @@ function liveLobby(code) {
     h('div', { class: 'center stack', style: { gap: '4px' } }, h('p', { class: 'eyebrow' }, 'Room'), h('div', { class: 'code roomcode' }, code), what),
     qrBox,
     h('div', { class: 'linkrow' }, h('input', { class: 'input', readonly: true, value: liveLink(code), 'aria-label': 'Join link', onfocus: (e) => e.target.select() }),
-      h('button', { class: 'btn ghost small', onclick: async () => { try { await navigator.clipboard.writeText(liveLink(code)); toast('Link copied'); } catch (e) { prompt('Copy the link:', liveLink(code)); } } }, 'Copy')),
+      h('button', { class: 'btn ghost small', onclick: async () => { try { await navigator.clipboard.writeText(liveLink(code)); toast('Link copied'); } catch (e) { copyBox('Copy the link', liveLink(code)); } } }, 'Copy')),
     h('button', { class: 'btn ghost small', onclick: () => shareRoom(code) }, '📤 Share'),
     list, startBtn, wait));
   qrSvg(liveLink(code)).then((svg) => qrBox.replaceChildren(svg)).catch(() => qrBox.remove());
@@ -1881,7 +1944,7 @@ function liveLobby(code) {
 async function shareRoom(code) {
   const url = liveLink(code), text = 'Race me in Geography Speedrun! Room ' + code;
   if (navigator.share) { try { await navigator.share({ title: 'Geography Speedrun race', text, url }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
-  try { await navigator.clipboard.writeText(text + '\n' + url); toast('Invite copied'); } catch (e) { prompt('Send this link:', url); }
+  try { await navigator.clipboard.writeText(text + '\n' + url); toast('Invite copied'); } catch (e) { copyBox('Send this link', url); }
 }
 // Host: start (or restart) the race 4 seconds from now, for everyone. A new round gets a new order.
 async function liveStartRound() {
