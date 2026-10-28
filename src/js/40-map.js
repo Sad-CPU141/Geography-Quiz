@@ -148,7 +148,16 @@ function mapGame(api) {
     if (pts.size === 1) { pan = { x: e.clientX, y: e.clientY, vb: Object.assign({}, vb) }; moved = false; }
     if (pts.size === 2) { const [a, b] = [...pts.values()]; pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, vb: Object.assign({}, vb) }; moved = true; }
   });
+  // Never leave the map stuck to the cursor: if the button-up got lost (released outside the window, the
+  // browser dropped the capture, the tab lost focus), forget the drag.
+  const dropAll = () => { pts.clear(); pan = null; pinch = null; };
+  const drop = (id) => { if (!pts.has(id)) return; pts.delete(id); if (pts.size === 1) { const [p] = [...pts.values()]; pan = { x: p.x, y: p.y, vb: Object.assign({}, vb) }; pinch = null; } if (!pts.size) { pan = null; pinch = null; } };
+  svg.addEventListener('lostpointercapture', (e) => drop(e.pointerId));
+  const winUp = (e) => drop(e.pointerId);
+  window.addEventListener('pointerup', winUp); window.addEventListener('pointercancel', winUp); window.addEventListener('blur', dropAll);
+  cleanup.push(() => { window.removeEventListener('pointerup', winUp); window.removeEventListener('pointercancel', winUp); window.removeEventListener('blur', dropAll); });
   svg.addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'mouse' && e.buttons === 0 && pts.size) { dropAll(); return; } // moving with no button held = not dragging
     if (!pts.has(e.pointerId)) return;
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
     const s = size();

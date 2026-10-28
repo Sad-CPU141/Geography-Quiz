@@ -305,6 +305,33 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
   }
   if (only === 'fly') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }
 
+  // Map drag never gets stuck to the cursor: drag, lose the button-up (swallowed, as when it's released outside
+  // the window), then move the mouse with no button held — the map must stay put; a normal drag still works.
+  if (!only || only === 'drag') {
+    const ctx = await b.newContext({ viewport: { width: 1366, height: 768 } });
+    const page = await ctx.newPage();
+    const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(BASE);
+    await setupBoard(page, ['Map'], 'Europe');
+    await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")');
+    await page.waitForSelector('svg.map'); await page.waitForTimeout(300);
+    const vbOf = () => page.getAttribute('svg.map', 'viewBox');
+    await page.mouse.move(700, 450); await page.mouse.down(); await page.mouse.move(760, 480, { steps: 5 });
+    const afterDrag = await vbOf();
+    await page.evaluate(() => window.addEventListener('pointerup', (e) => e.stopImmediatePropagation(), { capture: true, once: true }));
+    await page.evaluate(() => { const svg = document.querySelector('svg.map'); svg.addEventListener('pointerup', (e) => e.stopImmediatePropagation(), { capture: true, once: true }); });
+    await page.mouse.up();
+    await page.mouse.move(900, 300, { steps: 6 });
+    ok((await vbOf()) === afterDrag, 'drag: after a lost button-up, moving the mouse doesn\'t move the map');
+    await page.mouse.move(700, 450); await page.mouse.down(); await page.mouse.move(640, 420, { steps: 5 }); await page.mouse.up();
+    const v2 = await vbOf();
+    await page.mouse.move(900, 600, { steps: 5 });
+    ok(v2 !== afterDrag && (await vbOf()) === v2, 'drag: a normal drag still moves it and lets go');
+    ok(errors.length === 0, 'drag: no page errors ' + JSON.stringify(errors));
+    await ctx.close();
+  }
+  if (only === 'drag') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }
+
   // Options: Map with no borders, and typed languages — switches appear only with those games, go into the
   // code (+N / +T) and change how the games play.
   if (!only || only === 'opts') {
