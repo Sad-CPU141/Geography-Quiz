@@ -221,6 +221,42 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await ctx.close();
   }
 
+  // New versions: when version.json says there's a newer build, the home screen reloads once; in the middle of a
+  // run nothing happens until you go home.
+  if (!only || only === 'update') {
+    const ctx = await b.newContext({ viewport: { width: 360, height: 780 } });
+    const page = await ctx.newPage();
+    const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+    let fake = null, loads = 0;
+    page.on('load', () => loads++);
+    await page.route('**/version.json*', (route) => fake ? route.fulfill({ contentType: 'application/json', body: JSON.stringify({ version: fake }) }) : route.continue());
+    await page.goto(BASE); await page.waitForSelector('[data-screen="home"]'); await page.waitForTimeout(300);
+    ok(loads === 1, 'update: same version, no reload');
+    // Start a run, then a "new version" appears: no reload mid-run.
+    await setupBoard(page, ['Flags'], 'Oceania');
+    await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")');
+    await page.waitForSelector('.tile.active');
+    fake = 'newer1';
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await page.waitForTimeout(600);
+    ok(loads === 1 && await page.$('.tile.active') !== null, 'update: no reload in the middle of a run');
+    // Going home picks it up.
+    await page.click('button[aria-label="Leave"], .iconbtn').catch(() => {});
+    page.once('dialog', (d) => d.accept());
+    await page.waitForTimeout(100);
+    await page.evaluate(() => document.querySelector('.boardhead .iconbtn, .iconbtn') && document.querySelector('.boardhead .iconbtn, .iconbtn').click());
+    await page.waitForTimeout(1200);
+    ok(loads === 2, 'update: going home reloads once (' + loads + ' loads)');
+    await page.waitForSelector('[data-screen="home"]');
+    // Still "newer" after the reload (e.g. a stale cache): it doesn't loop.
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await page.waitForTimeout(800);
+    ok(loads === 2, 'update: no reload loop');
+    ok(errors.length === 0, 'update: no page errors ' + JSON.stringify(errors));
+    await ctx.close();
+  }
+  if (only === 'update') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }
+
   // Guess the language (phone + TV): first round picked wrong (shows the right one), the rest right; results list
   // the miss with its sentence; the rare-script font is there; then North America gets 10 rounds.
   for (const [W, H] of only && only !== 'lang' ? [] : [[360, 780], [1920, 1080]]) {

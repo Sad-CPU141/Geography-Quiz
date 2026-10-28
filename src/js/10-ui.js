@@ -75,8 +75,9 @@ if (!Array.isArray(S.setup.games) || !S.setup.games.length) S.setup.games = ['fl
 /* ---------------- screens ---------------- */
 function home() {
   liveStop();
+  if (S.updateReady && reloadForUpdate(S.updateReady)) return;
   const c = S.challenge;
-  mount(h('div', { class: 'app' },
+  mount(h('div', { class: 'app', 'data-screen': 'home' },
     h('header', { class: 'hero' },
       h('span', { class: 'tag' }, '● Game night'),
       h('h1', { class: 'display logo' }, 'Geography', h('span', null, 'Speedrun')),

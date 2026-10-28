@@ -24,7 +24,8 @@ self.addEventListener('fetch', (e) => {
   if (!url.pathname.startsWith(new URL(self.registration.scope).pathname)) return;
   const isShell = req.mode === 'navigate' || /\/(index\.html)?$/.test(url.pathname) || /\.(js|css|webmanifest)$/.test(url.pathname);
   if (isShell) {
-    e.respondWith(fetch(req).then((res) => { if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); } return res; })
+    // cache: 'no-cache' = always ask GitHub if there's a newer copy (its 10-minute browser cache kept old versions around).
+    e.respondWith(fetch(req, { cache: 'no-cache' }).then((res) => { if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); } return res; })
       .catch(() => caches.match(req, { ignoreSearch: req.mode === 'navigate' }).then((r) => r || caches.match('./index.html'))));
     return;
   }

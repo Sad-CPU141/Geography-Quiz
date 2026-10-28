@@ -1,7 +1,7 @@
 /* Geography Speedrun service worker (same approach as the other Game Night games).
    App files: network first, so new versions win when online; cached copy when offline.
    Flags, icons, fonts: cache first (flag file names are content hashes, so they never go stale). */
-const VERSION = 'a23ceb9871';
+const VERSION = '3368fac089';
 const CACHE = 'geospeed-' + VERSION;
 const CORE = ['./', './index.html', './app.js?v=' + VERSION, './data.js?v=' + VERSION, './map.js?v=' + VERSION, './langs.js?v=' + VERSION, './styles.css?v=' + VERSION, './manifest.webmanifest',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png', './icons/favicon.png',
@@ -24,7 +24,8 @@ self.addEventListener('fetch', (e) => {
   if (!url.pathname.startsWith(new URL(self.registration.scope).pathname)) return;
   const isShell = req.mode === 'navigate' || /\/(index\.html)?$/.test(url.pathname) || /\.(js|css|webmanifest)$/.test(url.pathname);
   if (isShell) {
-    e.respondWith(fetch(req).then((res) => { if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); } return res; })
+    // cache: 'no-cache' = always ask GitHub if there's a newer copy (its 10-minute browser cache kept old versions around).
+    e.respondWith(fetch(req, { cache: 'no-cache' }).then((res) => { if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); } return res; })
       .catch(() => caches.match(req, { ignoreSearch: req.mode === 'navigate' }).then((r) => r || caches.match('./index.html'))));
     return;
   }

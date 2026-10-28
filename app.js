@@ -1,7 +1,7 @@
-/* Geography Speedrun a23ceb9871 — built from src/js/ by build.js. Edit src/, not this file. */
+/* Geography Speedrun 3368fac089 — built from src/js/ by build.js. Edit src/, not this file. */
 (function () {
 'use strict';
-const APP_VERSION = "a23ceb9871";
+const APP_VERSION = "3368fac089";
 /* ---- core: data, answer matching, runs, challenge codes (no DOM; tested by tests/run.js) ---- */
 const DATA = window.GS_DATA.countries;
 const BY_ID = Object.fromEntries(DATA.map((c) => [c.id, c]));
@@ -439,8 +439,9 @@ if (!Array.isArray(S.setup.games) || !S.setup.games.length) S.setup.games = ['fl
 /* ---------------- screens ---------------- */
 function home() {
   liveStop();
+  if (S.updateReady && reloadForUpdate(S.updateReady)) return;
   const c = S.challenge;
-  mount(h('div', { class: 'app' },
+  mount(h('div', { class: 'app', 'data-screen': 'home' },
     h('header', { class: 'hero' },
       h('span', { class: 'tag' }, '● Game night'),
       h('h1', { class: 'display logo' }, 'Geography', h('span', null, 'Speedrun')),
@@ -1983,5 +1984,25 @@ function liveResults() {
 /* ---- start ---- */
 if (S.joinRoom) liveJoinScreen(S.joinRoom); else home();
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+
+/* New versions: phones kept showing an old copy of the site. Check version.json when the app opens, when it comes
+   back to the front and every 10 minutes; if there's a newer build, reload — straight away on the home screen,
+   otherwise the next time you go home (never in the middle of a run). Once per version, so it can't loop. */
+function reloadForUpdate(v) {
+  try { if (sessionStorage.getItem('gs_reloaded') === v) return false; sessionStorage.setItem('gs_reloaded', v); } catch (e) { return false; }
+  location.reload();
+  return true;
+}
+function checkUpdate() {
+  if (location.protocol !== 'https:' && location.hostname !== 'localhost') return;
+  fetch('version.json?t=' + Date.now(), { cache: 'no-store' }).then((r) => r.json()).then((j) => {
+    if (!j.version || j.version === APP_VERSION) return;
+    S.updateReady = j.version;
+    if (document.querySelector('[data-screen="home"]')) reloadForUpdate(j.version);
+  }).catch(() => {});
+}
+checkUpdate();
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkUpdate(); });
+setInterval(checkUpdate, 600000);
 
 })();
