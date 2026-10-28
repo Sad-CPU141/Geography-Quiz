@@ -1,4 +1,4 @@
-/* Geography Speedrun 6a539ef8ce — built from src/styles.css */
+/* Geography Speedrun 865eff0da3 — built from src/styles.css */
 /* Geography Speedrun — the "game night" family look (Draft Night, Khatfa, Jeopardy-Board): ink/purple stage,
    gold accents, condensed headings. This game's own accent is sky blue. Fonts are self-hosted (SIL OFL). */
 @font-face{font-family:'Anton';font-weight:400;font-display:swap;src:url(fonts/anton-latin-400-normal.woff2) format('woff2')}
@@ -294,6 +294,10 @@ body.fullscreen{overflow:hidden}
 .inset .map{width:100%;height:100%;touch-action:manipulation}
 .inset-name{position:absolute;top:4px;inset-inline-start:8px;font-family:var(--cond);font-weight:800;font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:rgba(255,255,255,.7);pointer-events:none}
 .mapwrap .zoom{z-index:3}
+.animspeed{position:absolute;top:8px;left:8px;z-index:3;display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:rgba(15,12,33,.82);border:1px solid var(--line);font-size:13px;color:var(--muted);font-weight:700}
+.animspeed input{width:110px;accent-color:var(--sky,#5aa8ff)}
+.animspeed b{min-width:2.2em;color:var(--text);text-align:center}
+@media (max-width:520px){.animspeed{font-size:11px;padding:4px 10px;gap:6px}.animspeed input{width:84px}}
 
 /* map: guessed dots and boxes light up in the answer colour (green / yellow / orange / red) */
 .map .dot[data-st]{stroke:#fff;stroke-width:2;filter:drop-shadow(0 0 3px rgba(255,255,255,.75))}

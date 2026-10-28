@@ -261,6 +261,50 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
   }
   if (only === 'update') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }
 
+  // Map: name it — every new country flies into the middle of the map, not too close; the speed slider works
+  // and 10 (Off) jumps straight there.
+  for (const [W, H] of only && only !== 'fly' ? [] : [[360, 780], [1366, 768]]) {
+    const ctx = await b.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 1 });
+    const page = await ctx.newPage();
+    const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(BASE);
+    await page.evaluate(() => localStorage.removeItem('gs_anim_v1'));
+    await setupBoard(page, ['Map: name it'], 'World');
+    await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")');
+    await page.waitForSelector('.namebox input'); await page.waitForSelector('.animspeed');
+    const settle = async () => { let last = ''; for (let i = 0; i < 60; i++) { const v = await page.getAttribute('svg.map', 'viewBox'); if (v === last) return; last = v; await page.waitForTimeout(80); } };
+    const check = async (k) => page.evaluate(() => {
+      const el = document.querySelector('.map [data-st="focus"]'); const id = el.dataset.id;
+      const w = document.querySelector('.mapwrap').getBoundingClientRect(), cx = w.left + w.width / 2, cy = w.top + w.height / 2;
+      const rs = [...document.querySelectorAll('svg.map:not(.inset svg) [data-id="' + id + '"]')].map((e) => e.getBoundingClientRect()).filter((r) => r.width + r.height > 0);
+      const d = Math.min(...rs.map((r) => Math.hypot(Math.max(r.left - cx, 0, cx - r.right), Math.max(r.top - cy, 0, cy - r.bottom))));
+      const vbw = +document.querySelector('svg.map').getAttribute('viewBox').split(' ')[2];
+      return { id, name: window.GS.DATA.find((c) => c.id === id).name, d, lim: Math.min(w.width, w.height) * 0.2, vbw };
+    });
+    let minW = Infinity;
+    for (let k = 0; k < 8; k++) {
+      if (k === 0) { await page.waitForTimeout(250); await page.screenshot({ path: path.join(outDir, 'fly-mid-' + W + '.png') }); }
+      await settle();
+      const c = await check(k);
+      minW = Math.min(minW, c.vbw);
+      ok(c.d <= c.lim, 'fly ' + W + ': ' + c.name + ' is in the middle (' + Math.round(c.d) + ' ≤ ' + Math.round(c.lim) + ')');
+      if (k === 1) await page.screenshot({ path: path.join(outDir, 'fly-' + W + '.png') });
+      for (const ch of c.name) { await page.keyboard.type(ch); if (await page.$eval('.namebox input', (el) => el.value === '')) break; }
+    }
+    ok(minW > 30, 'fly ' + W + ': never zoomed in too close (narrowest view ' + Math.round(minW) + ' map units)');
+    // Speed 10 = Off: the next country is centred at once.
+    await page.$eval('.animspeed input', (el) => { el.value = '10'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+    ok((await page.textContent('.animspeed b')) === 'Off' && await page.evaluate(() => localStorage.getItem('gs_anim_v1')) === '10', 'fly: slider at 10 = Off, saved');
+    const c0 = await check();
+    for (const ch of c0.name) { await page.keyboard.type(ch); if (await page.$eval('.namebox input', (el) => el.value === '')) break; }
+    await page.waitForTimeout(30);
+    const c1 = await check();
+    ok(c1.d <= c1.lim, 'fly: with animation off the next one (' + c1.name + ') is centred straight away');
+    ok(errors.length === 0, 'fly ' + W + ': no page errors ' + JSON.stringify(errors));
+    await ctx.close();
+  }
+  if (only === 'fly') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }
+
   // Guess the language (phone + TV): first round picked wrong (shows the right one), the rest right; results list
   // the miss with its sentence; the rare-script font is there; then North America gets 10 rounds.
   for (const [W, H] of only && only !== 'lang' ? [] : [[360, 780], [1920, 1080]]) {

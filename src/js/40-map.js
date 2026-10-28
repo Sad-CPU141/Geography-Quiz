@@ -85,6 +85,7 @@ function mapGame(api) {
   const size = () => { const r = svg.getBoundingClientRect(); return { w: r.width || 1, h: r.height || 1, left: r.left, top: r.top }; };
   let fitAll = false;
   function fit(all) {
+    stopAnim();
     fitAll = !!all;
     // A phone held upright starts on a tighter view of the region; ⤢ switches to the whole region and back.
     const s = size(), [bx, by, bw, bh] = !all && portrait() && view.tight ? view.tight : view.box;
@@ -130,6 +131,7 @@ function mapGame(api) {
     });
   }
   function zoomAt(f, cx, cy) { // cx, cy: screen point that stays put
+    stopAnim();
     const s = size();
     const nw = Math.min(fullW() * 1.4, Math.max(fullW() / 40, vb.w * f));
     const k = nw / vb.w;
@@ -286,24 +288,79 @@ function mapGame(api) {
   function named() {
     const cur = queue[0];
     res.found.push(cur); setState(cur, 'g0'); pop(cur);
-    const r = (els[cur][0]).getBoundingClientRect(); tapName(r.left + r.width / 2, r.top + r.height / 2, BY_ID[cur].name, true);
+    // The ✓ goes at the top of the map: the middle is where the next country flies in.
+    const w = wrap.getBoundingClientRect(); tapName(w.left + w.width / 2, w.top + 64, BY_ID[cur].name, true);
     queue.shift(); count(); ask();
   }
   nameInput.addEventListener('input', () => { if (!naming || ended || revealed) return; if (isRight(queue[0], 'country', nameInput.value)) named(); else help.update(); });
   nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (!ended && !revealed) { if (isRight(queue[0], 'country', nameInput.value)) named(); else help.enter(); } } });
-  // Bring the gold country into view: zoom in on it if it's small or off screen.
+  /* Map: name it — each new gold country: a smooth flight to it (zoom out a little, travel, zoom in), ending
+     with it centred and small enough that you can see its neighbours. Speed 1–10 from the slider (10 = instant). */
+  const ANIM_MS = [1800, 1500, 1250, 1050, 850, 700, 550, 400, 250, 0];
+  let animLevel = Math.min(10, Math.max(1, +store.get('gs_anim_v1', 6) || 6)), anim = 0;
+  const stopAnim = () => { if (anim) cancelAnimationFrame(anim); anim = 0; };
+  svg.addEventListener('pointerdown', stopAnim); svg.addEventListener('wheel', stopAnim, { passive: true });
+  cleanup.push(stopAnim);
+  function flyTo(to) {
+    stopAnim();
+    const ms = ANIM_MS[animLevel - 1];
+    if (!ms) { vb = to; apply(); return; }
+    const from = Object.assign({}, vb), ar = from.w / from.h;
+    const c0 = { x: from.x + from.w / 2, y: from.y + from.h / 2 }, c1 = { x: to.x + to.w / 2, y: to.y + to.h / 2 };
+    // Far apart (compared with the views): rise up in the middle so you see where you're going.
+    const dist = Math.hypot(c1.x - c0.x, c1.y - c0.y), wide = Math.max(from.w, to.w);
+    const rise = Math.min(1.2, Math.max(0, dist / wide - 0.4) * 0.6);
+    const lw0 = Math.log(from.w), lw1 = Math.log(to.w), t0 = performance.now();
+    const ease = (t) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+    const step = (now) => {
+      const t = Math.min(1, (now - t0) / ms), e = ease(t);
+      const w = Math.exp(lw0 + (lw1 - lw0) * e) * (1 + rise * Math.sin(Math.PI * e)), hh = w / ar;
+      const cx = c0.x + (c1.x - c0.x) * e, cy = c0.y + (c1.y - c0.y) * e;
+      vb = { x: cx - w / 2, y: cy - hh / 2, w, h: hh }; apply();
+      anim = t < 1 ? requestAnimationFrame(step) : 0;
+    };
+    anim = requestAnimationFrame(step);
+  }
+  // The part of a country to centre on: its marker box for small ones; otherwise its biggest piece plus the
+  // pieces near it (so France means mainland France, not French Guiana too).
+  const focusBox = {};
+  function boxOf(id) {
+    if (focusBox[id]) return focusBox[id];
+    const k = main.markers.find((x) => x.id === id);
+    if (k) return (focusBox[id] = { x: k.x0, y: k.y0, w: k.x1 - k.x0, h: k.y1 - k.y0 });
+    const el = els[id][0], parts = (el.getAttribute('d') || '').split(/(?=M)/).filter(Boolean);
+    const tmp = h('path', { style: { visibility: 'hidden' } }); svg.appendChild(tmp);
+    const bbs = parts.map((d) => { tmp.setAttribute('d', d); const b = tmp.getBBox(); return { x: b.x, y: b.y, w: b.width, h: b.height }; });
+    tmp.remove();
+    if (!bbs.length) { const b = el.getBBox(); return (focusBox[id] = { x: b.x, y: b.y, w: b.width, h: b.height }); }
+    const big = bbs.reduce((a, b) => (b.w * b.h > a.w * a.h ? b : a));
+    const reach = Math.max(2 * Math.hypot(big.w, big.h), 1), bc = { x: big.x + big.w / 2, y: big.y + big.h / 2 };
+    const near = bbs.filter((b) => Math.hypot(b.x + b.w / 2 - bc.x, b.y + b.h / 2 - bc.y) <= reach);
+    const x0 = Math.min(...near.map((b) => b.x)), y0 = Math.min(...near.map((b) => b.y));
+    const x1 = Math.max(...near.map((b) => b.x + b.w)), y1 = Math.max(...near.map((b) => b.y + b.h));
+    return (focusBox[id] = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
+  }
   function showTarget(id) {
     if (!base) return requestAnimationFrame(() => showTarget(id));
-    const el = els[id][0], bb = el.getBBox(), s = size();
-    const onScreen = el.getBoundingClientRect(), w = wrap.getBoundingClientRect();
-    const visible = onScreen.right > w.left + 20 && onScreen.left < w.right - 20 && onScreen.bottom > w.top + 20 && onScreen.top < w.bottom - 20;
-    const big = Math.max(onScreen.width, onScreen.height) >= 24;
-    if (visible && big) return;
-    // A view about 6× the country's size (but not smaller than a fifth of the region), centred on it.
-    const ar = s.w / s.h, cx = bb.x + bb.width / 2, cy = bb.y + bb.height / 2;
-    let vw = Math.max(bb.width * 6, bb.height * 6 * ar, base.w / 5);
+    const b = boxOf(id), s = size(), ar = s.w / s.h;
+    // The country takes up a bit over a quarter of the screen; never closer than 1/10 of the region (so you still see
+    // the neighbours), never wider than the region.
+    let vw = Math.max(b.w / 0.28, (b.h / 0.28) * ar, base.w / 10);
     vw = Math.min(vw, base.w);
-    vb = { x: cx - vw / 2, y: cy - vw / ar / 2, w: vw, h: vw / ar }; apply();
+    const vh = vw / ar;
+    let cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    // Huge countries (the view is the whole region): stay on the region rather than slide off into the sea.
+    if (vw >= base.w * 0.98) { cx = base.x + base.w / 2 + (cx - (base.x + base.w / 2)) * 0.5; cy = base.y + base.h / 2 + (cy - (base.y + base.h / 2)) * 0.5; }
+    flyTo({ x: cx - vw / 2, y: cy - vh / 2, w: vw, h: vh });
+  }
+  // The slider (Map: name it only), on the map's top-left corner. Saved on this device.
+  if (naming) {
+    const lvl = h('b', { class: 'num' }, String(animLevel));
+    const slider = h('input', { type: 'range', min: '1', max: '10', step: '1', value: String(animLevel), 'aria-label': 'Animation speed' });
+    slider.addEventListener('input', () => { animLevel = +slider.value; lvl.textContent = animLevel === 10 ? 'Off' : String(animLevel); store.set('gs_anim_v1', animLevel); });
+    slider.addEventListener('change', () => nameInput.focus({ preventScroll: true }));
+    if (animLevel === 10) lvl.textContent = 'Off';
+    wrap.appendChild(h('label', { class: 'animspeed' }, h('span', null, 'Animation speed'), slider, lvl));
   }
   count(); ask();
   if (portrait() && !store.get('gs_tip_sideways', false)) {
