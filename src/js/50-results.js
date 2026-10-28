@@ -31,6 +31,12 @@ function missedBoard(sec) {
     body = h('ul', { class: 'pairs' }, Object.entries(by).map(([c, ns]) => h('li', null, h('span', null, BY_ID[c].name), h('b', null, ns.join(', ')))));
   } else if (sec.game === 'duel') {
     body = h('ul', { class: 'pairs' }, sec.missed.map((key) => { const w = duelWinner(key), l = key.split('|').find((x) => x !== w); return h('li', null, h('span', null, BY_ID[w].name + ' > ' + BY_ID[l].name), h('b', null, BY_ID[w].area.toLocaleString('en-US') + ' km²')); }));
+  } else if (sec.game === 'chain') {
+    body = h('ul', { class: 'pairs' }, sec.missed.map((key) => { const [a, b] = key.split('~'); return h('li', null, h('span', null, BY_ID[a].name + ' → ' + BY_ID[b].name), h('b', null, shortestRoute(a, b).slice(1, -1).map((x) => BY_ID[x].name).join(' → '))); }));
+  } else if (sec.game === 'closer') {
+    body = h('ul', { class: 'pairs' }, sec.missed.map((key) => { const [t] = key.split('|'), w = closerOf(key); return h('li', null, h('span', null, 'Closer to ' + BY_ID[t].name), h('b', null, BY_ID[w].name)); }));
+  } else if (sec.game === 'currency') {
+    body = h('ul', { class: 'pairs' }, sec.missed.map((key) => h('li', null, h('span', null, currencyClue(key)), h('b', null, BY_ID[key.split('~')[0]].name))));
   } else if (sec.game === 'lang') {
     body = langList(sec.missed);
   } else {

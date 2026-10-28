@@ -161,6 +161,24 @@ ok(GS.withWhere({ kind: 'board', games: ['flags'], region: 'world', seed: 1 }, [
 const q1 = GS.withWhere({ kind: 'quick', mode: 'flags', region: 'world', count: 25, style: 'type', seed: 5 }, ['Europe', 'South America']);
 ok(GS.makeRun(q1).every((q) => ['Europe', 'South America'].includes(GS.DATA.find((c) => c.id === q.id).region)) && GS.encodeCode(GS.decodeCode(GS.encodeCode(q1))) === GS.encodeCode(q1) && GS.decodeCode(GS.encodeCode(q1)).regions.join() === q1.regions.join(), 'Quick fire with several continents');
 ok(GS.decodeCode('ABCD-EFGH+R3') === null || true, 'odd codes don\'t crash');
+// The newer games.
+const NEW = ['chain', 'all', 'hot', 'closer', 'clues', 'letter', 'scramble', 'currency', 'flagpick'];
+ok(NEW.every((g) => GS.GAMES.some((x) => x.id === g)) && GS.GAME_CATS.flatMap((c) => c.games).length >= GS.GAMES.length && GS.GAMES.every((g) => GS.GAME_CATS.some((c) => c.games.includes(g.id))), 'every game is in a setup tab');
+for (let sd = 1; sd <= 25; sd++) {
+  const cfgN = { kind: 'board', games: NEW.slice(), region: ['world', 'Europe', 'Africa', 'Asia', 'Oceania'][sd % 5], seed: sd * 7717 };
+  const code = GS.encodeCode(cfgN), back = GS.decodeCode(code);
+  ok(/\+V$/.test(code) && back && back.games.join() === cfgN.games.join() && back.region === cfgN.region && back.seed === cfgN.seed, 'new games in a challenge code (' + code + ')');
+  const B = GS.makeBoard(cfgN), sec = (g) => B[NEW.indexOf(g)];
+  ok(sec('chain').ids.length === 5 && sec('chain').ids.every((k) => { const [a, b] = k.split('~'), r = GS.shortestRoute(a, b); return r && r.length >= 4 && r.length <= 7 && r.every((x, i) => i === 0 || GS.DATA.find((c) => c.id === r[i - 1]).nb.includes(x)); }), 'border chain: 5 puzzles, 2–5 countries in between, real land route');
+  ok(sec('closer').ids.every((k) => { const [t, a, b] = k.split('|'), da = GS.km(t, a), db = GS.km(t, b); return Math.abs(da - db) > 0.2 * Math.max(da, db) && GS.closerOf(k) === (da < db ? a : b); }), 'closer or further: always a clear answer');
+  ok(sec('currency').ids.every((k) => { const [id, t] = k.split('~'), c = GS.DATA.find((x) => x.id === id); return t === 'c' ? c.cur.some((x) => GS.CURRENCY_COUNT[x] === 1) : GS.DEMONYM_COUNT[c.dem] === 1; }), 'currency & people: every clue points to one country only');
+  ok(sec('scramble').ids.every((id) => { const sc = sec('scramble').scr[id], n = GS.DATA.find((c) => c.id === id).name; return sc.replace(/ /g, '').split('').sort().join() === n.toUpperCase().replace(/ /g, '').split('').sort().join() && GS.norm(sc) !== GS.norm(n); }), 'unscramble: same letters, never the name itself');
+  ok(sec('letter').letters.every((x) => x.ids.every((id) => GS.norm(GS.DATA.find((c) => c.id === id).name)[0].toUpperCase() === x.L)), 'letter rush: every answer starts with its letter');
+  ok(sec('hot').ids.length === 5 && sec('clues').ids.length === 10 && sec('flagpick').grid.length === sec('flagpick').ids.length, 'hot/clues/flag finder sizes');
+}
+ok(GS.km('fr', 'de') > 300 && GS.km('fr', 'de') < 1000 && GS.km('fr', 'au') > 14000, 'distances (France–Germany, France–Australia)');
+ok(Math.abs(GS.bearing('fr', 'de') - 60) < 40 && Math.abs(GS.bearing('fr', 'es') - 220) < 40, 'directions (Germany is north-east of France, Spain south-west)');
+ok(GS.shortestRoute('fr', 'pl').length === 3 && GS.hops('pt').es === 1 && GS.shortestRoute('gb', 'fr') === null, 'shortest land routes (France→Germany→Poland; no land route UK→France)');
 // Daily run: same all day, different tomorrow, always two games and a continent.
 const d1 = GS.dailyCfg(20388), d2 = GS.dailyCfg(20388), d3 = GS.dailyCfg(20389);
 ok(JSON.stringify(d1) === JSON.stringify(d2) && JSON.stringify(d1) !== JSON.stringify(d3), 'daily: same day same run, next day different');

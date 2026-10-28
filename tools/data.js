@@ -255,7 +255,10 @@ const sha = (buf) => crypto.createHash('sha1').update(buf).digest('hex').slice(0
     const name = cc === 'CI' ? 'Ivory Coast' : cc === 'TR' ? 'Türkiye' : c.name.common;
     const caps = CAPITALS[cc] || c.capital;
     if (!caps || !caps.length) throw new Error('No capital for ' + cc);
-    return { id: cc.toLowerCase(), name, ratio: Math.round(ratio * 1000) / 1000, area: Math.round(c.area), nb: (c.borders || []).map((b) => by3[b]).filter((x) => x && ours.has(x)).sort(), names: [...names].filter((n) => n !== name), capital: caps[0], capitals: caps.slice(1), region: regionOf(c), flag, shape: outline(c) };
+    return { id: cc.toLowerCase(), name, ratio: Math.round(ratio * 1000) / 1000, area: Math.round(c.area), nb: (c.borders || []).map((b) => by3[b]).filter((x) => x && ours.has(x)).sort(), names: [...names].filter((n) => n !== name), capital: caps[0], capitals: caps.slice(1), region: regionOf(c), flag, shape: outline(c),
+      // Facts for the newer games (Hot or cold, Closer or further, Clue reveal, Currency & people), all from world-countries.
+      ll: c.latlng.map((v) => Math.round(v * 100) / 100), land: !!c.landlocked, sub: c.subregion || '',
+      cur: Object.values(c.currencies || {}).map((x) => x.name), lang: Object.values(c.languages || {}), dem: ((c.demonyms || {}).eng || {}).m || '' };
   }).sort((a, b) => a.name.localeCompare(b.name));
   // Only keep borders both countries agree on (drops e.g. Sri Lanka → India, which is a sea border).
   const byId = Object.fromEntries(out.map((c) => [c.id, c]));

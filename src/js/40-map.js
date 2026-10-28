@@ -18,7 +18,8 @@ function mapGame(api) {
   const { sec, res } = api;
   // Three ways to play the map: 'map' (tap the named country), 'flagmap' (tap the country of the flag shown),
   // 'mapname' (a country lights up in gold; type its name).
-  const mode = sec.game, naming = mode === 'mapname';
+  // 'all' = Name them all: no prompt; type any country of the run and it lights up.
+  const mode = sec.game, naming = mode === 'mapname', listing = mode === 'all', typing = naming || listing;
   const M = window.GS_MAP, view = mapView(M, S.session.cfg), m = M[view.map];
   // playable = countries you can tap. Normally just the ones in this run (the rest are grey); with
   // 🌍 All countries on the map (cfg.allMap) every country is live, so you can't tell the answers by colour.
@@ -69,7 +70,7 @@ function mapGame(api) {
       h('button', { class: 'iconbtn', 'aria-label': 'Show the whole map', onclick: () => fit(!fitAll) }, '⤢')));
   const target = h('b', { class: 'target' });
   // Map: name it — an input instead of the country's name.
-  const nameInput = h('input', { class: 'input', type: 'text', autocomplete: 'off', autocorrect: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'go', placeholder: 'Type the gold country…', 'aria-label': 'Name the country lit up in gold' });
+  const nameInput = h('input', { class: 'input', type: 'text', autocomplete: 'off', autocorrect: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'go', placeholder: listing ? 'Type any country…' : 'Type the gold country…', 'aria-label': 'Name the country lit up in gold' });
   const nameBox = h('div', { class: 'namebox' }, nameInput);
   const sugEl = h('div', { class: 'suggest', 'aria-live': 'polite', hidden: true });
   const hint = h('div', { class: 'maphint', 'aria-live': 'polite' });
@@ -85,8 +86,8 @@ function mapGame(api) {
       h('div', { class: 'secname' }, h('b', null, gameOf(mode).em + ' ' + api.label), api.part ? h('small', null, 'Game ' + api.part) : null),
       h('div', { class: 'timer num' }, fmtTime(api.R.clock.elapsed())),
       h('button', { class: 'btn ghost giveup', onclick: () => { if (!revealed && !ended) api.giveUp(); } }, 'Give up')),
-    h('div', { class: 'prompt' }, h('span', { class: 'findlbl' }, h('span', { class: 'eyebrow' }, naming ? 'Name it' : 'Find'), foundEl), naming ? nameBox : target, showBtn, skipBtn),
-    naming ? sugEl : null,
+    h('div', { class: 'prompt' }, h('span', { class: 'findlbl' }, h('span', { class: 'eyebrow' }, naming ? 'Name it' : listing ? 'Name them all' : 'Find'), foundEl), typing ? nameBox : target, listing ? null : showBtn, listing ? null : skipBtn),
+    typing ? sugEl : null,
     h('div', { class: 'mapbar', 'aria-hidden': 'true' }, barOk, barMiss),
     hint);
   mount(h('div', { class: 'app map-run' }, head, wrap, footer));
@@ -219,6 +220,7 @@ function mapGame(api) {
     if (mode === 'flagmap') target.replaceChildren(h('img', { class: 'promptflag', src: BY_ID[cur].flag, alt: 'The flag to find', width: Math.round(BY_ID[cur].ratio * 60), height: 60 }));
     else target.textContent = naming ? '' : BY_ID[cur].name;
     if (naming) { setState(cur, 'focus'); showTarget(cur); nameInput.value = ''; help.clear(); nameInput.focus({ preventScroll: true }); }
+    if (listing) { nameInput.focus({ preventScroll: true }); return; }
     const t = tries[queue[0]] || 0;
     hint.textContent = t ? '✗'.repeat(t) + ' ' + (MAP_TRIES - t) + ' tries left' : '';
   }
@@ -269,7 +271,7 @@ function mapGame(api) {
   function tap(x, y) {
     const id = pickAt(x, y);
     if (revealed) { if (id) hint.textContent = BY_ID[id] ? BY_ID[id].name : ''; return; }
-    if (naming || ended || !id || !playable.has(id)) return;
+    if (typing || ended || !id || !playable.has(id)) return;
     const cur = queue[0];
     if (must) {
       // After three misses you have to tap the right one (in red) before the next country.
@@ -307,7 +309,16 @@ function mapGame(api) {
   // Map: name it.
   // One shot (cfg.strict): Enter answers; a wrong name is missed (the answer shows) and the next one comes.
   const strict = !!S.session.cfg.strict;
-  const help = spellingHelp(nameInput, sugEl, 'country', () => queue[0], () => named(), null, strict ? () => { shake(nameInput); showAnswer(); } : null);
+  const listed = (text) => queue.find((id) => isRight(id, 'country', text));
+  const help = listing ? spellingHelp(nameInput, sugEl, 'country', () => null, () => listOne(), (text) => !!listed(text))
+    : spellingHelp(nameInput, sugEl, 'country', () => queue[0], () => named(), null, strict ? () => { shake(nameInput); showAnswer(); } : null);
+  // Name them all: a country of the run, in any order → it lights up where it is.
+  function listOne() {
+    const id = listed(nameInput.value); if (!id) return;
+    res.found.push(id); setState(id, 'g0'); pop(id);
+    queue.splice(queue.indexOf(id), 1); nameInput.value = ''; help.clear(); placeAll(); count();
+    if (!queue.length) ask();
+  }
   function named() {
     const cur = queue[0];
     res.found.push(cur); setState(cur, 'g0'); pop(cur);
@@ -315,8 +326,8 @@ function mapGame(api) {
     const w = wrap.getBoundingClientRect(); tapName(w.left + w.width / 2, w.top + 64, BY_ID[cur].name, true);
     queue.shift(); count(); ask();
   }
-  nameInput.addEventListener('input', () => { if (!naming || ended || revealed) return; if (!strict && isRight(queue[0], 'country', nameInput.value)) named(); else help.update(); });
-  nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (!ended && !revealed) { if (isRight(queue[0], 'country', nameInput.value)) named(); else if (!strict || nameInput.value.trim()) help.enter(); } } });
+  nameInput.addEventListener('input', () => { if (listing && !ended && !revealed) { if (listed(nameInput.value)) listOne(); else help.update(); return; } if (!naming || ended || revealed) return; if (!strict && isRight(queue[0], 'country', nameInput.value)) named(); else help.update(); });
+  nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); if (listing) { if (!ended && !revealed && nameInput.value.trim()) { if (listed(nameInput.value)) listOne(); else help.enter(); } return; } if (!ended && !revealed) { if (isRight(queue[0], 'country', nameInput.value)) named(); else if (!strict || nameInput.value.trim()) help.enter(); } } });
   /* Map: name it — each new gold country: a smooth flight to it (zoom out a little, travel, zoom in), ending
      with it centred and small enough that you can see its neighbours. Speed 1–10 from the slider (10 = instant). */
   const ANIM_MS = [1800, 1500, 1250, 1050, 850, 700, 550, 400, 250, 0];

@@ -42,7 +42,7 @@ function startSession(cfg, players, challenge, daily, practice) {
   if (cfg.kind === 'board') {
     S.session.board = makeBoard(cfg);
     if (cfg.games.some((g) => g === 'flags' || g === 'flagmap' || g === 'duel')) preloadFlags(cfgPool(cfg));
-    if (cfg.games.some((g) => MAP_GAMES.has(g))) loadMap().catch(() => toast('The map didn\'t load. Check your connection.'));
+    if (cfg.games.some((g) => NEEDS_MAP.has(g))) loadMap().catch(() => toast('The map didn\'t load. Check your connection.'));
   } else {
     S.session.questions = makeRun(cfg);
     preloadFlags(S.session.questions.filter((q) => q.kind === 'flag').map((q) => q.id));
@@ -81,7 +81,7 @@ function countdown() {
     setTimeout(tick, 700);
   };
   // Don't start the clock before the map has arrived.
-  if (S.session.cfg.kind === 'board' && S.session.cfg.games.some((g) => MAP_GAMES.has(g)) && !window.GS_MAP) {
+  if (S.session.cfg.kind === 'board' && S.session.cfg.games.some((g) => NEEDS_MAP.has(g)) && !window.GS_MAP) {
     mount(h('div', { class: 'app' }, h('div', { class: 'cover' }, h('p', { class: 'muted' }, 'Loading the map…'))));
     loadMap().then(go, () => { toast('The map didn\'t load. Check your connection and try again.'); cover(); });
   } else go();
@@ -146,7 +146,11 @@ function playSection(R) {
     giveUp: () => giveUpDialog(R, api),
     quit: () => quitRun(() => { R.clock.over = true; home(); }),
   };
-  api.ui = MAP_GAMES.has(sec.game) ? mapGame(api) : sec.game === 'borders' ? bordersGame(api) : sec.game === 'duel' ? duelGame(api) : sec.game === 'lang' ? langGame(api) : gridGame(api);
+  // A game with nothing to ask (e.g. no country in the run has a unique currency) is skipped.
+  if (!sec.ids.length) { nextSection(R); return; }
+  const UI = { borders: bordersGame, duel: duelGame, lang: langGame, chain: chainGame, hot: hotGame, closer: closerGame, clues: cluesGame,
+    letter: letterGame, scramble: scrambleGame, currency: currencyGame, flagpick: flagpickGame };
+  api.ui = MAP_GAMES.has(sec.game) ? mapGame(api) : (UI[sec.game] || gridGame)(api);
 }
 function giveUpDialog(R, api) {
   const se = S.session, more = R.sec < se.board.length - 1;

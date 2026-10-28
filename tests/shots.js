@@ -28,22 +28,28 @@ async function noSideScroll(page, label) {
   const w = await page.evaluate(() => [document.documentElement.scrollWidth, window.innerWidth]);
   ok(w[0] <= w[1], label + ': no sideways scroll (' + w[0] + ' ≤ ' + w[1] + ')');
 }
-const GAME_ID = { 'Flags': 'flags', 'Map': 'map', 'Capitals': 'capitals', 'Shapes': 'shapes', 'Reverse Capitals': 'revcap', 'Map: name it': 'mapname', 'Borders': 'borders', 'Flag → Map': 'flagmap', 'Bigger country': 'duel', 'Guess the language': 'lang' };
+const GAME_ID = { 'Flags': 'flags', 'Map': 'map', 'Capitals': 'capitals', 'Shapes': 'shapes', 'Reverse Capitals': 'revcap', 'Map: name it': 'mapname', 'Borders': 'borders', 'Flag → Map': 'flagmap', 'Bigger country': 'duel', 'Guess the language': 'lang',
+  'Border chain': 'chain', 'Name them all': 'all', 'Hot or cold': 'hot', 'Closer or further': 'closer', 'Clue reveal': 'clues', 'Letter rush': 'letter', 'Unscramble': 'scramble', 'Currency & people': 'currency', 'Flag finder': 'flagpick' };
 async function setupBoard(page, labels, region) {
   const games = labels.map((l) => GAME_ID[l]);
   await page.click('button:has-text("▶ New run")'); await page.waitForSelector('.seg');
   await page.click('.opt:has-text("Full board")');
-  const tog = await page.$('.more-toggle[aria-expanded="false"]'); if (tog) await tog.click();
-  // Turn on what's wanted, then turn off the rest.
-  for (const g of games) if (!(await page.$('.game-row.on[data-game="' + g + '"]'))) await page.click('.game-pick[data-game="' + g + '"]');
-  for (const g of Object.values(GAME_ID)) if (!games.includes(g) && (await page.$('.game-row.on[data-game="' + g + '"]'))) await page.click('.game-pick[data-game="' + g + '"]');
+  // Add each wanted game from its tab, then remove the others from "Your run".
+  for (const g of games) {
+    if (await page.$('.picked .game-row[data-game="' + g + '"]')) continue;
+    const cat = await page.evaluate((g) => window.GS.GAME_CATS.find((c) => c.games.includes(g)).id, g);
+    await page.click('.cat-tab[data-cat="' + cat + '"]');
+    await page.click('.game-grid .game-pick[data-game="' + g + '"]');
+  }
+  for (;;) {
+    const extra = await page.$$eval('.picked .game-row', (rs, want) => rs.map((r) => r.dataset.game).filter((g) => !want.includes(g)), games);
+    if (!extra.length) break;
+    await page.click('.picked .game-row[data-game="' + extra[0] + '"] .rm');
+  }
   // Order: move each game up into its place with the arrows.
   for (let j = 0; j < games.length; j++) {
-    const on = await page.$$eval('.game-row.on', (rs) => rs.map((r) => r.dataset.game));
-    // Rows on screen are main-then-more; the run order is in the numbers.
-    const order = await page.$$eval('.game-row.on', (rs) => rs.map((r) => [r.dataset.game, +r.querySelector('.game-num').textContent]).sort((x, y) => x[1] - y[1]).map((x) => x[0]));
-    void on;
-    for (let i = order.indexOf(games[j]); i > j; i--) await page.click('.game-row[data-game="' + games[j] + '"] [aria-label$=" up"]');
+    const order = await page.$$eval('.picked .game-row', (rs) => rs.map((r) => r.dataset.game));
+    for (let i = order.indexOf(games[j]); i > j; i--) await page.click('.picked .game-row[data-game="' + games[j] + '"] [aria-label$=" up"]');
   }
   await page.click('.opt:has-text("' + region + '")');
   await page.click('.opt:has-text("Just me")');
@@ -117,7 +123,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
       const y1 = await page.evaluate(() => window.scrollY);
       ok(y0 > 300 && Math.abs(y1 - y0) < 80, label + ': setup keeps its scroll position (' + y0 + ' → ' + y1 + ')');
     }
-    await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")');
+    await page.click('button.btn.primary:has-text("Start")'); await page.click('button:has-text("Go")');
     await page.waitForSelector('.tile.active');
     ok((await page.$$('.tile')).length === 196, label + ': 196 flag tiles');
     for (let i = 0; i < 4; i++) await typeActive(page, 'flag');
@@ -156,7 +162,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await page.click('.optrow:has-text("Spelling help") .switch');
     const order = await page.$$eval('.game-row.on', (rs) => rs.map((r) => [r.dataset.game, +r.querySelector('.game-num').textContent]).sort((x, y) => x[1] - y[1]).map((x) => x[0]));
     ok(order.join() === 'map,capitals', label + ': order Map → Capitals (' + order.join(', ') + ')');
-    await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")');
+    await page.click('button.btn.primary:has-text("Start")'); await page.click('button:has-text("Go")');
     await page.waitForSelector('.map .cty');
     await page.waitForTimeout(300);
     await page.screenshot({ path: path.join(outDir, label + '-06-map.png') }); await noSideScroll(page, label + ' map');
@@ -209,7 +215,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     // 3. Quick fire still works.
     await page.click('button:has-text("Change")'); await page.click('.opt:has-text("Quick fire")');
     await page.click('.opt:has-text("Flags")'); await page.click('.opt:has-text("10")'); await page.click('.opt:has-text("Type it")');
-    await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")'); await page.waitForSelector('.answer input');
+    await page.click('button.btn.primary:has-text("Start")'); await page.click('button:has-text("Go")'); await page.waitForSelector('.answer input');
     for (let i = 0; i < 10; i++) {
       await page.waitForFunction(() => !document.querySelector('.stage.ok, .stage.bad') && document.querySelector('.stage img'));
       const name = await page.evaluate(() => { const src = document.querySelector('.stage img').getAttribute('src'); return window.GS.DATA.find((c) => src.endsWith(c.flag)).name; });
@@ -234,7 +240,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     ok(loads === 1, 'update: same version, no reload');
     // Start a run, then a "new version" appears: no reload mid-run.
     await setupBoard(page, ['Flags'], 'Oceania');
-    await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")');
+    await page.click('button.btn.primary:has-text("Start")'); await page.click('button:has-text("Go")');
     await page.waitForSelector('.tile.active');
     fake = 'newer1';
     await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
@@ -270,7 +276,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await page.goto(BASE);
     await page.evaluate(() => localStorage.removeItem('gs_anim_v1'));
     await setupBoard(page, ['Map: name it'], 'World');
-    await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")');
+    await page.click('button.btn.primary:has-text("Start")'); await page.click('button:has-text("Go")');
     await page.waitForSelector('.namebox input'); await page.waitForSelector('.animspeed');
     const settle = async () => { let last = ''; for (let i = 0; i < 60; i++) { const v = await page.getAttribute('svg.map', 'viewBox'); if (v === last) return; last = v; await page.waitForTimeout(80); } };
     const check = async (k) => page.evaluate(() => {
@@ -313,7 +319,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     const errors = []; page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(BASE);
     await setupBoard(page, ['Map'], 'Europe');
-    await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")');
+    await page.click('button.btn.primary:has-text("Start")'); await page.click('button:has-text("Go")');
     await page.waitForSelector('svg.map'); await page.waitForTimeout(300);
     const vbOf = () => page.getAttribute('svg.map', 'viewBox');
     await page.mouse.move(700, 450); await page.mouse.down(); await page.mouse.move(760, 480, { steps: 5 });
@@ -332,6 +338,50 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
   }
   if (only === 'drag') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }
 
+  // The newer games: each one played for a few rounds by reading the right answer from the run, then given up.
+  // Phone and TV. Checks: right answers count, the "left" counter goes down, results show, no page errors.
+  for (const [W, H] of only && only !== 'newgames' ? [] : [[360, 780], [1920, 1080]]) {
+    const ctx = await b.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: W < 500 ? 2 : 1 });
+    const page = await ctx.newPage();
+    const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+    const typeEnter = async (text) => { await page.fill('.lang-type input, .namebox input', ''); await page.type('.lang-type input, .namebox input', text); await page.keyboard.press('Enter'); };
+    const leftNow = async () => +((/(\d+) left/.exec(await page.textContent('.found')) || [])[1]);
+    const solvers = {
+      chain: async () => { const [a, bb] = await page.$$eval('.chain-title b', (e) => e.map((x) => x.textContent)); const route = await page.evaluate(([a, bb]) => { const id = (n) => window.GS.DATA.find((c) => c.name === n).id; return window.GS.shortestRoute(id(a), id(bb)).slice(1, -1).map((x) => window.GS.DATA.find((c) => c.id === x).name); }, [a, bb]); for (const n of route) await typeEnter(n); await page.waitForTimeout(2900); },
+      all: async () => { const names = await page.evaluate(() => window.GS.session.board[0].ids.slice(0, 6).map((id) => window.GS.DATA.find((c) => c.id === id).name)); for (const n of names) { await page.fill('.namebox input', ''); await page.type('.namebox input', n); } },
+      hot: async () => { const n = await page.evaluate(() => { const i = +/Mystery country (\d+)/.exec(document.querySelector('.duel .eyebrow').textContent)[1] - 1; const id = window.GS.session.board[0].ids[i]; return window.GS.DATA.find((c) => c.id === id).name; }); await typeEnter('France' === n ? 'Spain' : 'France'); await page.waitForTimeout(200); await typeEnter(n); await page.waitForTimeout(1200); },
+      closer: async () => { const t = await page.textContent('.closer-target b'); const ids = await page.$$eval('.duel-pick', (bs) => bs.map((x) => x.dataset.id)); const w = await page.evaluate(([t, ids]) => { const tid = window.GS.DATA.find((c) => c.name === t).id; return window.GS.closerOf([tid, ...ids].join('|')); }, [t, ids]); await page.click('.duel-pick[data-id="' + w + '"]'); await page.waitForTimeout(950); },
+      clues: async () => { const total = await page.evaluate(() => window.GS.session.board[0].ids.length); const i = total - (await leftNow()); await page.click('.lang-type button'); const n = await page.evaluate((i) => window.GS.DATA.find((c) => c.id === window.GS.session.board[0].ids[i]).name, i); await typeEnter(n); await page.waitForTimeout(1100); },
+      letter: async () => { const L = (await page.textContent('.bigletter')).trim(); const names = await page.evaluate((L) => window.GS.session.board[0].letters.find((x) => x.L === L).ids.map((id) => window.GS.DATA.find((c) => c.id === id).name), L); for (const n of names) { await page.fill('.lang-type input', ''); await page.type('.lang-type input', n); } await page.waitForTimeout(800); },
+      scramble: async () => { const shown = (await page.$$eval('.scramble .word', (ws) => ws.map((w) => w.textContent))).join(' '); const n = await page.evaluate((sh) => { const sec = window.GS.session.board[0]; const id = sec.ids.find((x) => sec.scr[x] === sh); return window.GS.DATA.find((c) => c.id === id).name; }, shown); await page.fill('.lang-type input', ''); await page.type('.lang-type input', n); await page.waitForTimeout(800); },
+      currency: async () => { const clue = (await page.textContent('.bigclue')).trim(); const n = await page.evaluate((clue) => window.GS.DATA.find((c) => c.cur.includes(clue) && window.GS.CURRENCY_COUNT[clue] === 1 || c.dem === clue).name, clue); await page.fill('.lang-type input', ''); await page.type('.lang-type input', n); await page.waitForTimeout(800); },
+      flagpick: async () => { const n = (await page.textContent('.prompt .target')).trim(); const id = await page.evaluate((n) => window.GS.DATA.find((c) => c.name === n).id, n); await page.click('.flagpick .tile[data-id="' + id + '"]'); await page.waitForTimeout(100); },
+    };
+    const label = { chain: 'Border chain', all: 'Name them all', hot: 'Hot or cold', closer: 'Closer or further', clues: 'Clue reveal', letter: 'Letter rush', scramble: 'Unscramble', currency: 'Currency & people', flagpick: 'Flag finder' };
+    for (const g of Object.keys(solvers)) {
+      await page.goto(BASE);
+      await setupBoard(page, [label[g]], 'Europe');
+      await page.click('button.btn.primary:has-text("Start")'); await page.click('button:has-text("Go")');
+      await page.waitForSelector('.found', { timeout: 8000 });
+      await page.waitForTimeout(400);
+      const left0 = await leftNow();
+      const rounds = g === 'all' ? 1 : 2;
+      for (let k = 0; k < rounds; k++) await solvers[g]();
+      await page.waitForTimeout(300);
+      const txt = await page.textContent('.found'), left1 = await leftNow();
+      ok(/^[1-9]\d* (found|right|solved)/.test(txt) && left1 < left0, g + ' ' + W + ': right answers count and "left" goes down (' + txt + ', was ' + left0 + ' left)');
+      await page.screenshot({ path: path.join(outDir, 'new-' + g + '-' + W + '.png') });
+      await noSideScroll(page, g + ' ' + W);
+      await page.click('button:has-text("Give up")'); await page.click('button:has-text("Give up and show me")');
+      await page.click('.reveal-bar button'); await page.waitForSelector('.result-time');
+      ok(true, g + ' ' + W + ': results');
+      if (W < 500) await page.screenshot({ path: path.join(outDir, 'new-' + g + '-result.png'), fullPage: true });
+    }
+    ok(errors.length === 0, 'new games ' + W + ': no page errors ' + JSON.stringify(errors));
+    await ctx.close();
+  }
+  if (only === 'newgames') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }
+
   // Where: Mixed (N random countries) and Pick several (more than one continent).
   if (!only || only === 'where') {
     const ctx = await b.newContext({ viewport: { width: 360, height: 780 }, deviceScaleFactor: 2 });
@@ -343,7 +393,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await page.fill('.mixn', '30'); await page.press('.mixn', 'Enter'); await page.locator('.mixn').blur();
     await page.waitForTimeout(200);
     await page.screenshot({ path: path.join(outDir, 'where-mixed.png'), fullPage: true });
-    await page.click('button:has-text("Start")');
+    await page.click('button.btn.primary:has-text("Start")');
     ok(/Mixed 30/.test(await page.textContent('.topbar')) && /Flags 30/.test(await page.textContent('.cover')), 'Mixed 30: label and 30 per game');
     await page.click('button:has-text("Go")'); await page.waitForSelector('.tile');
     const flagIds = await page.$$eval('.tile', (ts) => ts.map((t) => t.dataset.id).sort());
@@ -358,7 +408,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await page.click('.opt:has-text("Mixed")');
     await page.fill('.mixn', '10'); await page.locator('.mixn').blur(); await page.waitForTimeout(150);
     await page.click('.optrow:has-text("all countries tappable") .switch');
-    await page.click('button:has-text("Start")');
+    await page.click('button.btn.primary:has-text("Start")');
     ok(/All countries/.test(await page.textContent('.topbar')), 'all countries: in the run name');
     await page.click('button:has-text("Go")'); await page.waitForSelector('svg.map'); await page.waitForTimeout(300);
     ok(await page.$$eval('svg.map:not(.inset svg) path.cty.off', (p) => p.length) === 0, 'all countries: nothing greyed out');
@@ -375,7 +425,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await page.click('.seg .opt:has-text("Africa")'); await page.click('.seg .opt:has-text("Europe")');
     ok(/100 countries/.test(await page.textContent('.card:has-text("Where")')), 'Pick several: Africa + Europe = 100 countries');
     await page.screenshot({ path: path.join(outDir, 'where-several.png'), fullPage: true });
-    await page.click('button:has-text("Start")');
+    await page.click('button.btn.primary:has-text("Start")');
     ok(/Africa \+ Europe/.test(await page.textContent('.topbar')), 'Pick several: run name');
     await page.click('button:has-text("Go")'); await page.waitForSelector('.tile');
     ok(await page.$$eval('.tile', (t) => t.length) === 100, 'Pick several: 100 flag tiles');
@@ -383,7 +433,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await page.goto(BASE);
     await page.click('button:has-text("▶ New run")'); await page.waitForSelector('.seg');
     for (const r of ['Africa', 'Europe']) await page.click('.seg .opt[aria-pressed="true"]:has-text("' + r + '")');
-    ok(await page.$('button:has-text("Start")[disabled]') !== null, 'Pick several with nothing picked: Start is off');
+    ok(await page.$('button.btn.primary:has-text("Start")[disabled]') !== null, 'Pick several with nothing picked: Start is off');
     ok(errors.length === 0, 'where: no page errors ' + JSON.stringify(errors));
     await ctx.close();
   }
@@ -401,7 +451,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await page.goto(BASE);
     await setupBoard(page, ['Map', 'Guess the language'], 'Europe');
     await page.click('.optrow:has-text("no borders") .switch'); await page.click('.optrow:has-text("type it") .switch');
-    await page.click('button:has-text("Start")');
+    await page.click('button.btn.primary:has-text("Start")');
     ok(/No borders/.test(await page.textContent('.topbar')) && /Typed/.test(await page.textContent('.topbar')), 'opts: shown in the run name');
     await page.click('button:has-text("Go")');
     await page.waitForSelector('svg.map.noborders');
@@ -431,7 +481,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await setupBoard(page, ['Capitals'], 'Europe');
     await page.click('.optrow:has-text("One shot") .switch');
     await page.click('.optrow:has-text("Spelling help") .switch');
-    await page.click('button:has-text("Start")');
+    await page.click('button.btn.primary:has-text("Start")');
     ok(/One shot/.test(await page.textContent('.topbar')), 'one shot: in the run name');
     await page.click('button:has-text("Go")'); await page.waitForSelector('.tile.active');
     const cap = async () => page.evaluate(() => { const id = document.querySelector('.tile.active').dataset.id; return [id, window.GS.DATA.find((c) => c.id === id).capital]; });
@@ -466,7 +516,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     const errors = []; page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(BASE);
     await setupBoard(page, ['Guess the language'], 'World');
-    await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")');
+    await page.click('button.btn.primary:has-text("Start")'); await page.click('button:has-text("Go")');
     await page.waitForSelector('.lang-pick');
     await noSideScroll(page, 'lang ' + W);
     await page.screenshot({ path: path.join(outDir, 'lang-' + W + '.png') });
@@ -516,7 +566,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
       // North America: only 4 official languages, so their other sentences fill it up to 10 rounds.
       await page.goto(BASE);
       await setupBoard(page, ['Guess the language'], 'N. America');
-      await page.click('button:has-text("Start")');
+      await page.click('button.btn.primary:has-text("Start")');
       await page.waitForFunction(() => /Guess the language/.test((document.querySelector('.cover') || {}).textContent || ''), null, { timeout: 5000 }).catch(() => {});
       ok(/Guess the language 10/.test(await page.textContent('.cover')), 'lang: North America has 10 rounds');
     }
@@ -534,9 +584,9 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await page.goto(BASE);
     await setupBoard(page, ['Reverse Capitals', 'Borders', 'Bigger country', 'Flag → Map', 'Map: name it'], 'S. America');
     await page.screenshot({ path: path.join(outDir, 'more-setup.png'), fullPage: true });
-    const order = await page.$$eval('.game-row.on', (rs) => rs.map((r) => [r.dataset.game, +r.querySelector('.game-num').textContent]).sort((x, y) => x[1] - y[1]).map((x) => x[0]));
+    const order = await page.$$eval('.picked .game-row', (rs) => rs.map((r) => r.dataset.game));
     ok(order.join() === 'revcap,borders,duel,flagmap,mapname', 'more games picked in order: ' + order.join(', '));
-    await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")');
+    await page.click('button.btn.primary:has-text("Start")'); await page.click('button:has-text("Go")');
     // Reverse Capitals
     await page.waitForSelector('.tile.active');
     await page.screenshot({ path: path.join(outDir, 'more-1-revcap.png') });
@@ -634,7 +684,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await page.click('.optrow:has-text("Practice") .switch');
     ok(await page.getAttribute('.optrow:has-text("Practice") .switch', 'aria-checked') === 'true', 'practice switch on');
     await page.screenshot({ path: path.join(outDir, 'practice-setup.png'), fullPage: true });
-    await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")');
+    await page.click('button.btn.primary:has-text("Start")'); await page.click('button:has-text("Go")');
     await page.waitForSelector('.tile.active');
     ok((await page.textContent('.timer')).trim() === 'Practice', 'no clock in practice');
     const shownIds = [];
@@ -809,7 +859,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     const errors = []; page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(BASE);
     await setupBoard(page, ['Map'], region);
-    await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")'); await page.waitForSelector('.map .cty');
+    await page.click('button.btn.primary:has-text("Start")'); await page.click('button:has-text("Go")'); await page.waitForSelector('.map .cty');
     await page.waitForTimeout(300);
     await page.screenshot({ path: path.join(outDir, 'islands-' + region.replace(/\W/g, '') + '.png') });
     let ringTaps = 0, total = 0, litChecked = false, litColours = '';
@@ -843,7 +893,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     const errors = []; page.on('pageerror', (e) => errors.push(e.message));
     await page.goto(BASE);
     await setupBoard(page, ['Map'], 'World');
-    await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")'); await page.waitForSelector('.map .cty');
+    await page.click('button.btn.primary:has-text("Start")'); await page.click('button:has-text("Go")'); await page.waitForSelector('.map .cty');
     await page.waitForTimeout(300);
     ok(await page.isVisible('.inset-left') && await page.isVisible('.inset-right'), 'world map shows the Caribbean and Pacific insets');
     await page.screenshot({ path: path.join(outDir, 'world-insets.png') });
@@ -885,7 +935,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await page.goto(BASE);
     await setupBoard(page, ['Shapes'], 'S. America');
     await page.fill('input[placeholder="Name"]', 'Xrazt');
-    await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")'); await page.waitForSelector('.tile.active');
+    await page.click('button.btn.primary:has-text("Start")'); await page.click('button:has-text("Go")'); await page.waitForSelector('.tile.active');
     const orderA = await page.$$eval('.tile', (ts) => ts.map((t) => t.dataset.id));
     await page.screenshot({ path: path.join(outDir, 'shapes-board.png') });
     for (let i = 0; i < 12; i++) await typeActive(page, 'shape');

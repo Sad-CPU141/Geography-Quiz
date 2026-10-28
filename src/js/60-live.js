@@ -243,7 +243,7 @@ function liveBegin2(room) {
     const left = room.startAt - NET.now();
     if (left <= 0) {
       const begin = () => { boardRun(); liveBar(); };
-      if (room.cfg.games.some((g) => MAP_GAMES.has(g)) && !window.GS_MAP) loadMap().then(begin, () => toast('The map didn\'t load'));
+      if (room.cfg.games.some((g) => NEEDS_MAP.has(g)) && !window.GS_MAP) loadMap().then(begin, () => toast('The map didn\'t load'));
       else begin();
       return;
     }

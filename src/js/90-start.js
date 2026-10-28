@@ -21,3 +21,5 @@ function checkUpdate() {
 checkUpdate();
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkUpdate(); });
 setInterval(checkUpdate, 600000);
+// For the browser tests: the current session (read-only).
+try { Object.defineProperty(window.GS, 'session', { get: () => S.session }); } catch (e) { /* already there */ }

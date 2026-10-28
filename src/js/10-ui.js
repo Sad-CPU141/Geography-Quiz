@@ -193,31 +193,35 @@ function setup() {
     setTimeout(() => document.querySelector('#pname') && document.querySelector('#pname').focus(), 0);
   };
 
-  // Board: which games, in which order.
+  // Board: which games, in which order. "Your run" lists the picked games (move ↑ ↓, remove ✕); below, the games
+  // in tabs (Classic, Map, Flags, Words, Puzzles) — tap one to add it to the run (or take it out).
   function gamesCard() {
     const move = (g, d) => { const i = st.games.indexOf(g), j = i + d; if (j < 0 || j >= st.games.length) return; [st.games[i], st.games[j]] = [st.games[j], st.games[i]]; save(); setup(); };
     const toggle = (g) => { if (st.games.includes(g)) { if (st.games.length === 1) return toast('Pick at least one game'); st.games = st.games.filter((x) => x !== g); } else st.games.push(g); save(); setup(); };
+    const cat = GAME_CATS.find((c) => c.id === st.cat) || GAME_CATS[0];
+    const picked = st.games.map((g, i) => {
+      const G = gameOf(g);
+      return h('div', { class: 'game-row on', 'data-game': g },
+        h('span', { class: 'game-num' }, String(i + 1)),
+        h('span', { class: 'game-txt' }, h('b', null, G.em + ' ' + G.label)),
+        h('span', { class: 'game-move' },
+          st.games.length > 1 ? [h('button', { class: 'iconbtn sm', 'aria-label': 'Move ' + G.label + ' up', disabled: i === 0, onclick: () => move(g, -1) }, '↑'),
+            h('button', { class: 'iconbtn sm', 'aria-label': 'Move ' + G.label + ' down', disabled: i === st.games.length - 1, onclick: () => move(g, 1) }, '↓')] : null,
+          h('button', { class: 'iconbtn sm rm', 'aria-label': 'Remove ' + G.label, disabled: st.games.length === 1, onclick: () => toggle(g) }, '✕')));
+    });
     const row = (g) => {
-      const on = st.games.includes(g), i = st.games.indexOf(g), G = gameOf(g);
-      return h('div', { class: 'game-row' + (on ? ' on' : ''), 'data-game': g },
-        h('button', { class: 'game-pick', 'data-game': g, 'aria-pressed': String(on), onclick: () => toggle(g) },
-          h('span', { class: 'game-num' }, on ? String(i + 1) : '+'),
-          h('span', { class: 'game-txt' }, h('b', null, G.em + ' ' + G.label), h('small', null, G.desc))),
-        on && st.games.length > 1 ? h('span', { class: 'game-move' },
-          h('button', { class: 'iconbtn sm', 'aria-label': 'Move ' + G.label + ' up', disabled: i === 0, onclick: () => move(g, -1) }, '↑'),
-          h('button', { class: 'iconbtn sm', 'aria-label': 'Move ' + G.label + ' down', disabled: i === st.games.length - 1, onclick: () => move(g, 1) }, '↓')) : null);
+      const on = st.games.includes(g), G = gameOf(g);
+      return h('button', { class: 'game-pick' + (on ? ' on' : ''), 'data-game': g, 'aria-pressed': String(on), onclick: () => toggle(g) },
+        h('span', { class: 'game-em', 'aria-hidden': 'true' }, G.em), h('span', { class: 'game-txt' }, h('b', null, G.label), h('small', null, G.desc)), h('span', { class: 'game-tick' }, on ? '✓' : '+'));
     };
-    // The 4 main games, then the others in a fold-out so the list stays short.
-    const main = GAMES.filter((g) => !g.more).map((g) => g.id), more = GAMES.filter((g) => g.more).map((g) => g.id);
-    const moreOn = more.filter((g) => st.games.includes(g)).length;
-    const open = st.showMore != null ? st.showMore : moreOn > 0;
     return h('div', { class: 'card' },
-      h('p', { class: 'eyebrow' }, 'Games'),
-      h('div', { class: 'games' }, main.map(row)),
-      h('button', { class: 'more-toggle', 'aria-expanded': String(open), onclick: () => { st.showMore = !open; save(); setup(); } },
-        h('span', null, (open ? '▾ ' : '▸ ') + 'More games'), h('small', null, more.length + ' more' + (moreOn ? ' · ' + moreOn + ' picked' : ''))),
-      open ? h('div', { class: 'games' }, more.map(row)) : null,
-      st.games.length > 1 ? h('p', { class: 'small muted' }, st.games.map((g) => gameOf(g).label).join(' → ')) : null);
+      h('p', { class: 'eyebrow' }, 'Your run'),
+      h('div', { class: 'games picked' }, picked),
+      h('div', { class: 'cat-tabs', role: 'tablist' }, GAME_CATS.map((c) => {
+        const n = c.games.filter((g) => st.games.includes(g)).length;
+        return h('button', { class: 'cat-tab', role: 'tab', 'data-cat': c.id, 'aria-selected': String(c.id === cat.id), onclick: () => { st.cat = c.id; save(); setup(); } }, c.label, n ? h('small', null, String(n)) : null);
+      })),
+      h('div', { class: 'game-grid' }, cat.games.map(row)));
   }
   function quickCards() {
     const counts = (n > 60 ? [10, 25, 50] : [10, 20]).filter((x) => x < n).concat([n]);
@@ -260,7 +264,7 @@ function setup() {
       st.kind === 'board' && st.games.some((g) => MAP_GAMES.has(g)) ? optRow('🧱 Map: no borders', !!st.hard, set('hard')) : null,
       st.kind === 'board' && st.games.some((g) => MAP_GAMES.has(g)) ? optRow('🌍 Map: all countries tappable', !!st.allMap, set('allMap')) : null,
       st.kind === 'board' && st.games.includes('lang') ? optRow('⌨️ Languages: type it', !!st.langType, set('langType')) : null,
-      st.kind === 'board' && (st.games.some((g) => ['flags', 'shapes', 'capitals', 'revcap', 'mapname', 'borders'].includes(g)) || (st.games.includes('lang') && st.langType)) ? optRow('🎯 One shot (Enter to answer)', !!st.strict, set('strict')) : null,
+      st.kind === 'board' && (st.games.some((g) => TYPING_GAMES.includes(g)) || (st.games.includes('lang') && st.langType)) ? optRow('🎯 One shot (Enter to answer)', !!st.strict, set('strict')) : null,
       st.kind === 'board' && st.group === 'live' ? optRow('👀 See what game others are on', st.peek !== false, set('peek')) : null),
     S.liveNext ? null : h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Who is playing'),
       seg([{ id: false, label: 'Just me', em: '🙋' }, { id: true, label: 'Pass the phone', em: '👥' }].concat(st.kind === 'board' ? [{ id: 'live', label: 'Online', em: '🌐' }] : []), st.kind === 'quick' && st.group === 'live' ? false : st.group, set('group'), st.kind === 'board' ? 3 : 2),
