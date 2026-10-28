@@ -65,6 +65,7 @@ function mapGame(api) {
   const barOk = h('i', { class: 'b-ok' }), barMiss = h('i', { class: 'b-miss' });
   const portrait = () => window.innerHeight > window.innerWidth * 1.15;
   const skipBtn = h('button', { class: 'btn ghost giveup', onclick: () => skip() }, 'Skip');
+  const showBtn = api.practice ? h('button', { class: 'btn ghost giveup', onclick: () => showAnswer() }, 'Show') : null;
   const footer = h('div', { class: 'reveal-bar floating', hidden: true });
   const head = h('div', { class: 'bhead' },
     h('div', { class: 'hud' },
@@ -72,7 +73,7 @@ function mapGame(api) {
       h('div', { class: 'secname' }, h('b', null, gameOf(mode).em + ' ' + api.label), api.part ? h('small', null, 'Game ' + api.part) : null),
       h('div', { class: 'timer num' }, fmtTime(api.R.clock.elapsed())),
       h('button', { class: 'btn ghost giveup', onclick: () => { if (!revealed && !ended) api.giveUp(); } }, 'Give up')),
-    h('div', { class: 'prompt' }, h('span', { class: 'findlbl' }, h('span', { class: 'eyebrow' }, naming ? 'Name it' : 'Find'), foundEl), naming ? nameBox : target, skipBtn),
+    h('div', { class: 'prompt' }, h('span', { class: 'findlbl' }, h('span', { class: 'eyebrow' }, naming ? 'Name it' : 'Find'), foundEl), naming ? nameBox : target, showBtn, skipBtn),
     naming ? sugEl : null,
     h('div', { class: 'mapbar', 'aria-hidden': 'true' }, barOk, barMiss),
     hint);
@@ -198,6 +199,20 @@ function mapGame(api) {
     const t = tries[queue[0]] || 0;
     hint.textContent = t ? '✗'.repeat(t) + ' ' + (MAP_TRIES - t) + ' tries left' : '';
   }
+  // Practice: show where it is (map / flag → map: it flashes red and you tap it) or what it's called (name it).
+  function showAnswer() {
+    if (revealed || ended || must || !queue.length) return;
+    const cur = queue[0];
+    if (naming) {
+      setState(cur, 'miss'); missedN++;
+      const r = els[cur][0].getBoundingClientRect(); tapName(r.left + r.width / 2, r.top + r.height / 2, BY_ID[cur].name, false);
+      hint.textContent = 'That was ' + BY_ID[cur].name;
+      queue.shift(); count(); ask(); return;
+    }
+    tries[cur] = MAP_TRIES; must = cur; setState(cur, 'must');
+    hint.textContent = BY_ID[cur].name + ' is flashing red: tap it';
+    showMust(cur);
+  }
   function skip() {
     if (revealed || must || ended || queue.length < 2) return;
     if (naming) setState(queue[0], null);
@@ -292,7 +307,7 @@ function mapGame(api) {
   }
   count(); ask();
   if (portrait() && !store.get('gs_tip_sideways', false)) {
-    hint.textContent = 'Tip: turn your phone sideways for a bigger map. Pinch to zoom.';
+    hint.textContent = 'Turn sideways for a bigger map';
     store.set('gs_tip_sideways', true);
   }
 

@@ -23,9 +23,10 @@ function bordersGame(api) {
   const input = h('input', { class: 'input', type: 'text', autocomplete: 'off', autocorrect: 'off', autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'go', placeholder: 'Type a neighbour…', 'aria-label': 'A neighbouring country' });
   const sugEl = h('div', { class: 'suggest', 'aria-live': 'polite', hidden: true });
   const skipBtn = h('button', { class: 'btn ghost giveup', onclick: () => skip() }, 'Skip');
+  const showBtn = api.practice ? h('button', { class: 'btn ghost giveup', onclick: () => showAnswer() }, 'Show') : null;
   const card = h('div', { class: 'bcard' });
   const footer = h('div', { class: 'reveal-bar', hidden: true });
-  const head = boardHead(api, [h('div', { class: 'typebar' }, input, skipBtn), sugEl, h('div', { class: 'progress' }, foundEl, h('span', { class: 'small muted' }, 'Any order · Skip comes back later'))]);
+  const head = boardHead(api, [h('div', { class: 'typebar' }, input, showBtn, skipBtn), sugEl, h('div', { class: 'progress' }, foundEl)]);
   mount(h('div', { class: 'app wide grid-run' }, head, card, footer));
   const remaining = (id) => BY_ID[id].nb.filter((n) => !done.has(id + '>' + n));
   // Which still-missing neighbour of the current country does this text name?
@@ -50,6 +51,19 @@ function bordersGame(api) {
       if (!queue.length) { ended = true; draw(); input.disabled = true; skipBtn.disabled = true; api.done(); return; }
     }
     draw(); input.focus({ preventScroll: true });
+  }
+  // Practice: show the neighbours you haven't named (they count as missed), then the next country.
+  let showing = false;
+  function showAnswer() {
+    if (revealed || ended || showing || !queue[0]) return;
+    showing = true;
+    const cur = queue[0];
+    card.querySelectorAll('.slot').forEach((el, k) => { const n = BY_ID[cur].nb[k]; if (!done.has(cur + '>' + n)) { el.classList.add('shown'); el.textContent = BY_ID[n].name; } });
+    setTimeout(() => {
+      showing = false; queue.shift(); input.value = ''; help.clear();
+      if (!queue.length) { ended = true; input.disabled = true; skipBtn.disabled = true; api.done(); return; }
+      draw(); input.focus({ preventScroll: true });
+    }, 1400);
   }
   function skip() { if (revealed || ended || queue.length < 2) return; queue.push(queue.shift()); input.value = ''; help.clear(); draw(); input.focus({ preventScroll: true }); }
   input.addEventListener('input', () => { if (revealed || ended) return; if (match(input.value)) accept(); else help.update(); });
@@ -77,7 +91,7 @@ function duelGame(api) {
   const foundEl = h('span', { class: 'found num' });
   const arena = h('div', { class: 'duel' });
   const footer = h('div', { class: 'reveal-bar', hidden: true });
-  const head = boardHead(api, h('div', { class: 'progress' }, foundEl, h('span', { class: 'small muted' }, 'Tap the bigger country (land area)')));
+  const head = boardHead(api, h('div', { class: 'progress' }, foundEl));
   mount(h('div', { class: 'app grid-run' }, head, arena, footer));
   const fmtArea = (a) => a.toLocaleString('en-US') + ' km²';
   function count() { foundEl.textContent = res.found.length + ' / ' + sec.ids.length + ' right · round ' + Math.min(i + 1, sec.ids.length); }

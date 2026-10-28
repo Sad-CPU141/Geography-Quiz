@@ -31,7 +31,7 @@ async function noSideScroll(page, label) {
 const GAME_ID = { 'Flags': 'flags', 'Map': 'map', 'Capitals': 'capitals', 'Shapes': 'shapes', 'Reverse Capitals': 'revcap', 'Map: name it': 'mapname', 'Borders': 'borders', 'Flag → Map': 'flagmap', 'Bigger country': 'duel' };
 async function setupBoard(page, labels, region) {
   const games = labels.map((l) => GAME_ID[l]);
-  await page.click('text=New run'); await page.waitForSelector('.seg');
+  await page.click('button:has-text("▶ New run")'); await page.waitForSelector('.seg');
   await page.click('.opt:has-text("Full board")');
   const tog = await page.$('.more-toggle[aria-expanded="false"]'); if (tog) await tog.click();
   // Turn on what's wanted, then turn off the rest.
@@ -152,7 +152,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     // 2. Combined run, Europe: Map first (2 misses on the first, 3 strikes on the second), then Capitals all typed.
     await page.click('button:has-text("Home")');
     await setupBoard(page, ['Map', 'Capitals'], 'Europe');
-    await page.click('.card:has-text("Spelling help") .opt:has-text("On")');
+    await page.click('.optrow:has-text("Spelling help") .switch');
     const order = await page.$$eval('.game-row.on', (rs) => rs.map((r) => [r.dataset.game, +r.querySelector('.game-num').textContent]).sort((x, y) => x[1] - y[1]).map((x) => x[0]));
     ok(order.join() === 'map,capitals', label + ': order Map → Capitals (' + order.join(', ') + ')');
     await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")');
@@ -290,7 +290,7 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     await page.waitForSelector('button:has-text("Give up")');
     await page.click('button:has-text("Give up")'); await page.click('button:has-text("End the whole run")'); await page.click('button:has-text("See results")');
     await page.waitForSelector('.result-time');
-    ok((await page.textContent('body')).includes('this is your score for today'), 'daily: first go counts');
+    const dtxt = await page.textContent('body'); ok(dtxt.includes('📅 Daily') && !dtxt.includes('· replay'), 'daily: first go counts');
     await page.click('button:has-text("Home")');
     await page.waitForSelector('.card.daily');
     ok(/Your score today: 0\//.test(await page.textContent('.card.daily')), 'daily: home shows today\'s score');
@@ -298,6 +298,42 @@ const targetId = (page) => page.evaluate(() => { const n = document.querySelecto
     ok(errors.length === 0, 'daily: no page errors ' + JSON.stringify(errors));
     await ctx.close();
     if (only === 'more') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }
+  }
+
+  // Practice mode + My misses (phone): practice Flags in Oceania, Show 3 answers, finish the rest; then the
+  // misses screen lists them and its Practice button plays just those.
+  if (!only || only === 'practice') {
+    const ctx = await b.newContext({ viewport: { width: 360, height: 780 }, deviceScaleFactor: 2 });
+    const page = await ctx.newPage();
+    const errors = []; page.on('pageerror', (e) => errors.push(e.message));
+    await page.goto(BASE);
+    await setupBoard(page, ['Flags'], 'Oceania');
+    await page.click('.optrow:has-text("Practice") .switch');
+    ok(await page.getAttribute('.optrow:has-text("Practice") .switch', 'aria-checked') === 'true', 'practice switch on');
+    await page.screenshot({ path: path.join(outDir, 'practice-setup.png'), fullPage: true });
+    await page.click('button:has-text("Start")'); await page.click('button:has-text("Go")');
+    await page.waitForSelector('.tile.active');
+    ok((await page.textContent('.timer')).trim() === 'Practice', 'no clock in practice');
+    const shownIds = [];
+    for (let i = 0; i < 3; i++) { shownIds.push(await page.$eval('.tile.active', (t) => t.dataset.id)); await page.click('.showbtn'); }
+    ok((await page.$$('.tile.missed')).length === 3, 'Show reveals 3 answers');
+    await page.screenshot({ path: path.join(outDir, 'practice-board.png') });
+    for (let i = 0; i < 11; i++) { if (!(await page.$('.tile.active'))) break; await typeActive(page, 'flag'); }
+    await page.waitForSelector('.result-time');
+    ok((await page.textContent('.result-time')).trim() === '11/14' && !(await page.$('.card.sky')), 'practice result 11/14, no challenge card');
+    await page.click('button:has-text("Home")');
+    await page.click('button:has-text("My misses")');
+    await page.waitForSelector('.pairs li');
+    const listed = await page.$$eval('.pairs li span', (els) => els.map((e) => e.textContent));
+    const names = await page.evaluate((ids) => ids.map((id) => window.GS.DATA.find((c) => c.id === id).name), shownIds);
+    ok(names.every((n) => listed.includes(n)), 'My misses lists the 3 shown: ' + names.join(', '));
+    await page.screenshot({ path: path.join(outDir, 'misses.png'), fullPage: true });
+    await page.click('.card:has-text("Flags") button:has-text("Practice")'); await page.click('button:has-text("Go")');
+    await page.waitForSelector('.tile.active');
+    ok((await page.$$('.tile')).length === 3, 'practice of misses has just those 3 flags');
+    ok(errors.length === 0, 'practice: no page errors ' + JSON.stringify(errors));
+    await ctx.close();
+    if (only === 'practice') { await b.close(); server.close(); console.log(fails ? fails + ' FAILED' : 'all browser checks passed'); process.exit(fails ? 1 : 0); }
   }
 
   // Islands: Oceania and the Caribbean on a phone, tapping each island country's ring (a little off-centre,

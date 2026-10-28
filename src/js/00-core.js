@@ -7,16 +7,16 @@ const BY_ID = Object.fromEntries(DATA.map((c) => [c.id, c]));
        flags / shapes / capitals = a grid of everything, pick a tile and type it; map = click the named country.
    · quick: one question at a time (type it or pick from 4), the original mode. */
 const GAMES = [
-  { id: 'flags', label: 'Flags', em: '🏳️', desc: 'Every flag on one board. Tap a flag, type the country.' },
-  { id: 'map', label: 'Map', em: '🌍', desc: 'The whole map. Tap the country it asks for.' },
-  { id: 'capitals', label: 'Capitals', em: '🏛️', desc: 'Every country in a box. Tap one, type its capital.' },
-  { id: 'shapes', label: 'Shapes', em: '🗺️', desc: 'Every country outline on one board. Tap one, type the country.' },
+  { id: 'flags', label: 'Flags', em: '🏳️', desc: 'Name every flag' },
+  { id: 'map', label: 'Map', em: '🌍', desc: 'Tap the country' },
+  { id: 'capitals', label: 'Capitals', em: '🏛️', desc: 'Name every capital' },
+  { id: 'shapes', label: 'Shapes', em: '🗺️', desc: 'Name every outline' },
   // "More games" (shown in a fold-out in setup). Keep this order: a game's position is part of the challenge code.
-  { id: 'revcap', label: 'Reverse Capitals', em: '🔁', desc: 'Every capital in a box. Tap one, type its country.', more: true },
-  { id: 'mapname', label: 'Map: name it', em: '🔦', desc: 'A country lights up on the map. Type its name.', more: true },
-  { id: 'borders', label: 'Borders', em: '🧱', desc: 'Name every country that shares a land border with it.', more: true },
-  { id: 'flagmap', label: 'Flag → Map', em: '📍', desc: 'See a flag, tap that country on the map.', more: true },
-  { id: 'duel', label: 'Bigger country', em: '⚖️', desc: 'Two countries: tap the one with more land area.', more: true },
+  { id: 'revcap', label: 'Reverse Capitals', em: '🔁', desc: 'Capital → country', more: true },
+  { id: 'mapname', label: 'Map: name it', em: '🔦', desc: 'Name the lit-up country', more: true },
+  { id: 'borders', label: 'Borders', em: '🧱', desc: 'Name the neighbours', more: true },
+  { id: 'flagmap', label: 'Flag → Map', em: '📍', desc: 'Flag → tap the country', more: true },
+  { id: 'duel', label: 'Bigger country', em: '⚖️', desc: 'Pick the bigger one', more: true },
 ];
 const MAP_GAMES = new Set(['map', 'mapname', 'flagmap']);
 const MODES = [
@@ -91,7 +91,8 @@ function makeRun(cfg) {
 function makeBoard(cfg) {
   return cfg.games.map((g, i) => {
     const r = rng((cfg.seed * 31 + i * 7919 + g.length * 104729) >>> 0);
-    const ids = pool(cfg.region);
+    // A practice run of your misses brings its own list of countries (cfg.custom[game]).
+    const ids = cfg.custom && cfg.custom[g] ? cfg.custom[g].slice().sort() : pool(cfg.region);
     const sec = { game: g, kind: kindOfGame(g), ids: shuffle(ids, r) };
     if (g === 'borders') {
       // Countries with at least one land neighbour in the game; each neighbour is one answer ("de>fr").
@@ -234,7 +235,7 @@ const styleOf = (id) => STYLES.find((x) => x.id === id);
 const regionLabel = (id) => regionOf(id).short || regionOf(id).label;
 function cfgTotal(cfg) { return cfg.kind === 'board' ? makeBoard(cfg).reduce((n, sec) => n + sec.ids.length, 0) : cfg.count; }
 function cfgLabel(cfg) {
-  if (cfg.kind === 'board') return cfg.games.map((g) => gameOf(g).label).join(' + ') + ' · ' + regionLabel(cfg.region);
+  if (cfg.kind === 'board') return cfg.games.map((g) => gameOf(g).label).join(' + ') + ' · ' + (cfg.custom ? 'My misses' : regionLabel(cfg.region));
   return [modeOf(cfg.mode).label, regionLabel(cfg.region), cfg.count === pool(cfg.region).length ? 'All ' + cfg.count : String(cfg.count), styleOf(cfg.style).label].join(' · ') + ' · Quick';
 }
 const bestKey = (cfg) => cfg.kind === 'board' ? ['b', cfg.games.join('+'), cfg.region].join('|') : [cfg.mode, cfg.region, cfg.count, cfg.style].join('|');
@@ -292,17 +293,35 @@ function suggest(typed, kind) {
   return out;
 }
 
+/* ---------------- what you keep missing ---------------- */
+// Per game, how often each country was missed (minus how often it was got right since), across all runs on this
+// device. Only games that ask about one country at a time on a list are tracked.
+const MISS_GAMES = ['flags', 'shapes', 'capitals', 'revcap', 'map', 'mapname', 'flagmap'];
+const QUICK_GAME = { flag: 'flags', shape: 'shapes', capital: 'capitals' };
+function recordMisses(book, score) {
+  const add = (g, id, d) => { if (!MISS_GAMES.includes(g) || !BY_ID[id]) return; book[g] = book[g] || {}; const n = (book[g][id] || 0) + d; if (n > 0) book[g][id] = n; else delete book[g][id]; };
+  if (score.sections) score.sections.forEach((sec) => { if (sec.skipped) return; sec.missed.forEach((id) => add(sec.game, id, 1)); sec.found.forEach((id) => add(sec.game, id, -1)); });
+  if (score.res) score.res.forEach((x) => add(QUICK_GAME[x.kind], x.id, x.ok ? -1 : 1));
+  return book;
+}
+const topMisses = (book, g, n) => Object.entries(book[g] || {}).sort((a, b) => b[1] - a[1] || BY_ID[a[0]].name.localeCompare(BY_ID[b[0]].name)).slice(0, n);
+
 /* ---------------- daily run ---------------- */
-// The same run for everyone on the same (UTC) day: a continent (they take turns) and two games, in an order
+// The same run for everyone on the same day (Eastern time): a continent (they take turns) and two games, in an order
 // picked from the date. Day numbers count days since 1 Jan 1970 (UTC).
 const DAILY_REGIONS = ['Europe', 'Africa', 'Asia', 'North America', 'South America', 'Oceania'];
 const DAILY_GAMES = ['flags', 'map', 'capitals', 'shapes', 'revcap', 'flagmap'];
-const todayNum = () => Math.floor(Date.now() / 86400000);
+// The day changes at midnight Eastern time (Toronto), as the owner asked.
+function todayNum(now) {
+  const p = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now ? new Date(now) : new Date());
+  const v = (t) => +p.find((x) => x.type === t).value;
+  return Math.floor(Date.UTC(v('year'), v('month') - 1, v('day')) / 86400000);
+}
 function dailyCfg(day) {
   const r = rng((day * 2654435761) >>> 0);
   return { kind: 'board', games: shuffle(DAILY_GAMES, r).slice(0, 2), region: DAILY_REGIONS[day % DAILY_REGIONS.length], seed: Math.floor(r() * SEED_MAX) };
 }
 const dayLabel = (day) => new Date(day * 86400000).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
 
-window.GS = { dailyCfg, duelWinner, GAMES, suggest, editDistance, norm, isRight, answersFor, makeRun, makeBoard, encodeCode, decodeCode, fmtTime, pool, rng, better, compare, GAME_ORDERS, cfgLabel, DATA };
+window.GS = { recordMisses, topMisses, todayNum, dailyCfg, duelWinner, GAMES, suggest, editDistance, norm, isRight, answersFor, makeRun, makeBoard, encodeCode, decodeCode, fmtTime, pool, rng, better, compare, GAME_ORDERS, cfgLabel, DATA };
 if (window.GS_NO_UI) return;

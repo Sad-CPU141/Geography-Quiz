@@ -106,6 +106,16 @@ const d1 = GS.dailyCfg(20388), d2 = GS.dailyCfg(20388), d3 = GS.dailyCfg(20389);
 ok(JSON.stringify(d1) === JSON.stringify(d2) && JSON.stringify(d1) !== JSON.stringify(d3), 'daily: same day same run, next day different');
 for (let d = 20000; d < 20060; d++) { const c = GS.dailyCfg(d); ok(c.games.length === 2 && c.region !== 'world' && GS.decodeCode(GS.encodeCode(c)) !== null, 'daily ' + d + ' ok'); }
 
+// What you keep missing: misses go up, getting it right brings them down, only list games count.
+let book = {};
+book = GS.recordMisses(book, { sections: [{ game: 'flags', missed: ['fr', 'de'], found: ['it'] }, { game: 'borders', missed: ['de>fr'], found: [] }, { game: 'map', missed: [], found: [], skipped: true }] });
+book = GS.recordMisses(book, { sections: [{ game: 'flags', missed: ['fr'], found: ['de'] }] });
+book = GS.recordMisses(book, { res: [{ id: 'jp', kind: 'capital', ok: false }, { id: 'fr', kind: 'flag', ok: false }] });
+ok(book.flags.fr === 3 && !book.flags.de && !book.flags.it && !book.borders && book.capitals.jp === 1, 'misses book: ' + JSON.stringify(book));
+ok(GS.topMisses(book, 'flags', 5)[0][0] === 'fr', 'most-missed first');
+const pr = GS.makeBoard({ kind: 'board', games: ['flags'], region: 'world', seed: 1, custom: { flags: ['fr', 'jp', 'br'] } })[0];
+ok(pr.ids.length === 3 && pr.ids.slice().sort().join() === 'br,fr,jp', 'practice board uses just your misses');
+
 // A typo in a code is caught most of the time (4-bit check).
 let caught = 0, tries = 0;
 for (let i = 0; i < 400; i++) {

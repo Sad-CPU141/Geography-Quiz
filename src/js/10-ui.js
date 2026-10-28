@@ -39,6 +39,11 @@ function seg(items, current, onPick, n) {
   return h('div', { class: 'seg', style: { '--n': n || items.length } }, items.map((it) =>
     h('button', { class: 'opt', 'aria-pressed': String(it.id === current), onclick: () => onPick(it.id) }, it.em ? h('span', { class: 'em', 'aria-hidden': 'true' }, it.em) : null, it.label, it.sub ? h('small', null, it.sub) : null)));
 }
+// A one-line on/off switch.
+function optRow(label, on, onSet) {
+  return h('div', { class: 'optrow' }, h('span', null, label),
+    h('button', { class: 'switch', role: 'switch', 'aria-checked': String(on), 'aria-label': label, onclick: () => onSet(!on) }, h('i')));
+}
 function modal(...kids) {
   const bg = h('div', { class: 'modal-bg', onclick: (e) => { if (e.target === bg) bg.remove(); } }, h('div', { class: 'card modal' }, ...kids));
   document.body.appendChild(bg);
@@ -74,7 +79,7 @@ function home() {
     h('header', { class: 'hero' },
       h('span', { class: 'tag' }, '● Game night'),
       h('h1', { class: 'display logo' }, 'Geography', h('span', null, 'Speedrun')),
-      h('p', null, 'Flags, maps, capitals and shapes against the clock. Then send a friend the exact same run.')),
+      h('p', null, 'Geography against the clock.')),
     S.badLink ? h('p', { class: 'small muted center' }, 'That challenge link didn\'t work (it may be from an older version). Ask for a new one.') : null,
     c ? h('div', { class: 'card sky' },
       h('p', { class: 'eyebrow' }, 'Challenge from ' + c.name),
@@ -88,6 +93,7 @@ function home() {
     h('div', { class: 'stack' },
       h('button', { class: 'btn primary', onclick: setup }, '▶ New run'),
       h('button', { class: 'btn ghost', onclick: codeEntry }, '🔑 Enter a challenge code'),
+      missCount() ? h('button', { class: 'btn ghost', onclick: misses }, '🎯 My misses') : null,
       h('button', { class: 'btn ghost', onclick: bests }, '⏱ Best times')),
     h('div', { class: 'foot' }, h('a', { href: '../' }, '← Game Night'), ' · ', h('a', { href: '#', onclick: (e) => { e.preventDefault(); credits(); } }, 'Credits'), ' · ' + DATA.length + ' countries'),
   ));
@@ -102,7 +108,7 @@ function dailyCard() {
   return h('div', { class: 'card daily' },
     h('div', { class: 'daily-top' }, h('p', { class: 'eyebrow' }, '📅 Daily run · ' + dayLabel(day)), streak > 1 ? h('span', { class: 'badge' }, '🔥 ' + streak + ' days') : null),
     h('div', { class: 'daily-what' }, regionOf(cfg.region).label + ': ' + cfg.games.map((g) => gameOf(g).em + ' ' + gameOf(g).label).join(' → ')),
-    mine ? h('p', null, 'Your score today: ', h('b', null, mine.correct + '/' + mine.total + ' in ' + fmtTime(mine.time))) : h('p', { class: 'small muted' }, 'Same run for everyone today. New one at midnight UTC.'),
+    mine ? h('p', null, 'Your score today: ', h('b', null, mine.correct + '/' + mine.total + ' in ' + fmtTime(mine.time))) : h('p', { class: 'small muted' }, 'New run at midnight ET'),
     h('div', { class: 'row' },
       mine ? h('button', { class: 'btn ghost small', onclick: () => shareDaily(day, mine) }, '📤 Share') : null,
       h('button', { class: 'btn ' + (mine ? 'ghost' : 'gold') + ' small', onclick: () => startSession(cfg, [S.myName || 'You'], null, day) }, mine ? '↻ Play again' : '▶ Play today\'s run')));
@@ -116,7 +122,7 @@ async function shareDaily(day, mine) {
 }
 
 function nameField() {
-  return h('label', { class: 'field' }, h('span', { class: 'eyebrow' }, 'Your name (shown to your friend)'),
+  return h('label', { class: 'field' }, h('span', { class: 'eyebrow' }, 'Your name'),
     h('input', { class: 'input', value: S.myName, maxlength: 24, placeholder: 'Name', autocomplete: 'nickname', oninput: (e) => { S.myName = e.target.value.trim(); store.set('gs_name_v1', S.myName); } }));
 }
 
@@ -154,12 +160,12 @@ function setup() {
     const moreOn = more.filter((g) => st.games.includes(g)).length;
     const open = st.showMore != null ? st.showMore : moreOn > 0;
     return h('div', { class: 'card' },
-      h('p', { class: 'eyebrow' }, 'Games — pick one or more, in the order you want'),
+      h('p', { class: 'eyebrow' }, 'Games'),
       h('div', { class: 'games' }, main.map(row)),
       h('button', { class: 'more-toggle', 'aria-expanded': String(open), onclick: () => { st.showMore = !open; save(); setup(); } },
         h('span', null, (open ? '▾ ' : '▸ ') + 'More games'), h('small', null, more.length + ' more' + (moreOn ? ' · ' + moreOn + ' picked' : ''))),
       open ? h('div', { class: 'games' }, more.map(row)) : null,
-      st.games.length > 1 ? h('p', { class: 'small muted' }, 'One clock for the whole run: ' + st.games.map((g) => gameOf(g).label).join(' → ') + '. It ends when you finish (or give up on) the last one.') : null);
+      st.games.length > 1 ? h('p', { class: 'small muted' }, st.games.map((g) => gameOf(g).label).join(' → ')) : null);
   }
   function quickCards() {
     const counts = (st.region === 'world' ? [10, 25, 50] : [10, 20]).filter((x) => x < n).concat([n]);
@@ -168,7 +174,7 @@ function setup() {
       h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'What to name'), seg(MODES, st.mode, set('mode'), 4)),
       h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'How many'), seg(counts.map((c) => ({ id: c, label: c === n ? 'All ' + c : String(c) })), st.count, set('count'), counts.length)),
       h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'How to answer'), seg(STYLES, st.style, set('style'), 2),
-        h('p', { class: 'small muted' }, st.style === 'type' ? 'Type the answer and it moves on by itself. Skip = +10s.' : 'Tap the right one of four. A wrong tap = +5s.')),
+        h('p', { class: 'small muted' }, st.style === 'type' ? 'Skip +10s' : 'Wrong +5s')),
     ];
   }
   const cfgNow = () => st.kind === 'board'
@@ -177,17 +183,16 @@ function setup() {
   mount(h('div', { class: 'app', 'data-screen': 'setup' },
     topbar('New run', home),
     h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Style'),
-      seg([{ id: 'board', label: 'Full board', em: '🧩', sub: 'All at once, like JetPunk & Seterra' }, { id: 'quick', label: 'Quick fire', em: '⚡', sub: 'One question at a time' }], st.kind, set('kind'), 2)),
+      seg([{ id: 'board', label: 'Full board', em: '🧩', sub: 'All at once' }, { id: 'quick', label: 'Quick fire', em: '⚡', sub: 'One at a time' }], st.kind, set('kind'), 2)),
     st.kind === 'board' ? gamesCard() : null,
     h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Where'), seg(regionItems.slice(0, 4), st.region, set('region'), 4), seg(regionItems.slice(4), st.region, set('region'), 3)),
     st.kind === 'quick' ? quickCards() : null,
-    st.kind === 'board' || st.style === 'type' ? h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Spelling help'),
-      seg([{ id: false, label: 'Off', em: '🎯' }, { id: true, label: 'On', em: '💡' }], !!st.help, set('help'), 2),
-      h('p', { class: 'small muted' }, st.help ? 'If you type something close, it shows "Did you mean …?" with the right spelling. Tap it to use it. It only suggests real names, so it won\'t give the answer away.' : 'Turn on to get "Did you mean …?" when you misspell a name.')) : null,
+    h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Options'),
+      st.kind === 'board' || st.style === 'type' ? optRow('💡 Spelling help', !!st.help, set('help')) : null,
+      st.kind === 'board' ? optRow('🧘 Practice (no clock)', !!st.practice, set('practice')) : null),
     h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Who is playing'),
       seg([{ id: false, label: 'Just me', em: '🙋' }, { id: true, label: 'Pass the phone', em: '👥' }], st.group, set('group'), 2),
       st.group ? [
-        h('p', { class: 'small muted' }, 'Everyone plays the same run, one after another.'),
         h('div', { class: 'chips' }, S.players.map((p, i) => h('span', { class: 'chip' }, p, h('button', { 'aria-label': 'Remove ' + p, onclick: () => { S.players.splice(i, 1); store.set('gs_players_v1', S.players); setup(); } }, '✕')))),
         h('div', { class: 'row' }, nameInput = h('input', { id: 'pname', class: 'input', placeholder: 'Add a player', maxlength: 24, onkeydown: (e) => { if (e.key === 'Enter') addPlayer(); } }), h('button', { class: 'btn ghost small', style: { flex: '0 0 auto', width: 'auto' }, onclick: addPlayer }, '+ Add')),
       ] : nameField()),
@@ -203,15 +208,34 @@ function codeEntry() {
   const btn = h('button', { class: 'btn primary', disabled: true, onclick: () => { const cfg = decodeCode(inp.value); if (cfg) startSession(cfg, S.setup.group && S.players.length >= 2 ? S.players.slice() : [S.myName || 'You'], null); } }, '▶ Play this run');
   const check = () => {
     const cfg = decodeCode(inp.value);
-    info.replaceChildren(cfg ? h('p', { class: 'muted' }, '✓ ' + cfgLabel(cfg)) : h('p', { class: 'small muted' }, inp.value.replace(/[^0-9a-z]/gi, '').length >= 8 ? 'That code doesn\'t look right. Check it and try again.' : 'Codes look like ABCD-1234.'));
+    info.replaceChildren(cfg ? h('p', { class: 'muted' }, '✓ ' + cfgLabel(cfg)) : h('p', { class: 'small muted' }, inp.value.replace(/[^0-9a-z]/gi, '').length >= 8 ? 'Code not found' : 'e.g. ABCD-1234'));
     btn.disabled = !cfg;
   };
   mount(h('div', { class: 'app' }, topbar('Challenge code', home),
-    h('div', { class: 'card' }, h('p', null, 'Got a code from a friend? Type it here to play the exact same run.'),
+    h('div', { class: 'card' }, h('p', { class: 'eyebrow' }, 'Friend\'s code'),
       inp = h('input', { class: 'input code', style: { fontSize: '28px' }, placeholder: 'ABCD-1234', maxlength: 12, autocapitalize: 'characters', autocomplete: 'off', spellcheck: 'false', oninput: () => check() }),
       info = h('div')),
     btn));
   check(); inp.focus();
+}
+
+// What you keep missing: the countries you get wrong most, per game, with a practice run for each.
+const missCount = () => Object.values(store.get('gs_misses_v1', {})).reduce((n, g) => n + Object.keys(g).length, 0);
+function misses() {
+  const book = store.get('gs_misses_v1', {});
+  const games = MISS_GAMES.filter((g) => book[g] && Object.keys(book[g]).length);
+  const practise = (g) => {
+    const ids = topMisses(book, g, 30).map(([id]) => id);
+    startSession({ kind: 'board', games: [g], region: 'world', seed: newSeed(), custom: { [g]: ids } }, [S.myName || 'You'], null, null, true);
+  };
+  mount(h('div', { class: 'app', 'data-screen': 'misses' }, topbar('My misses', home),
+    games.length ? games.map((g) => {
+      const list = topMisses(book, g, 12), G = gameOf(g);
+      return h('div', { class: 'card' },
+        h('div', { class: 'daily-top' }, h('p', { class: 'eyebrow' }, G.em + ' ' + G.label), h('button', { class: 'btn primary small', style: { width: 'auto' }, onclick: () => practise(g) }, '🧘 Practice')),
+        h('ul', { class: 'pairs' }, list.map(([id, n]) => h('li', null, h('span', null, g === 'capitals' ? BY_ID[id].name + ' → ' + BY_ID[id].capital : g === 'revcap' ? BY_ID[id].capital + ' → ' + BY_ID[id].name : BY_ID[id].name), h('b', null, '×' + n)))));
+    }) : h('p', { class: 'muted center' }, 'Nothing yet'),
+    games.length ? h('button', { class: 'btn ghost small', onclick: () => { if (confirm('Clear your misses?')) { store.set('gs_misses_v1', {}); misses(); } } }, 'Clear') : null));
 }
 
 function bests() {

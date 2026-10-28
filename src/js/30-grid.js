@@ -38,7 +38,7 @@ function gridGame(api) {
       input,
       h('button', { class: 'iconbtn', 'aria-label': 'Next', onmousedown: (e) => e.preventDefault(), onclick: () => step(1) }, '▶')),
     sugEl,
-    h('div', { class: 'progress' }, foundEl, h('span', { class: 'small muted' }, 'Tap any ' + ({ capitals: 'country', flags: 'flag', shapes: 'outline', revcap: 'capital' }[game] || 'tile') + ' to switch')));
+    h('div', { class: 'progress' }, foundEl, api.practice ? h('button', { class: 'showbtn', onmousedown: (e) => e.preventDefault(), onclick: () => showAnswer() }, '👁 Show answer') : null));
   mount(h('div', { class: 'app wide grid-run' }, head, grid, footer));
 
   function count() { foundEl.textContent = found.size + ' / ' + ids.length + ' found'; }
@@ -55,8 +55,22 @@ function gridGame(api) {
   }
   // The next tile that isn't found yet, going forwards (d = 1) or backwards (d = -1) and wrapping round.
   function nextOpen(from, d) {
-    for (let k = 1; k <= ids.length; k++) { const i = ((from + d * k) % ids.length + ids.length) % ids.length; if (!found.has(ids[i])) return i; }
+    for (let k = 1; k <= ids.length; k++) { const i = ((from + d * k) % ids.length + ids.length) % ids.length; if (!found.has(ids[i]) && !shown.has(ids[i])) return i; }
     return -1;
+  }
+  // Practice: show the answer for the selected tile (counts as missed) and go to the next one.
+  const shown = new Set();
+  function showAnswer() {
+    const id = ids[active];
+    if (revealed || found.has(id) || shown.has(id)) return;
+    shown.add(id);
+    const t = tiles[active];
+    t.classList.remove('active'); t.classList.add('missed');
+    t.querySelector('.lbl').textContent = answerText(id, kind);
+    input.value = ''; help.clear();
+    const n = nextOpen(active, 1);
+    if (n < 0) { input.blur(); api.done(); return; }
+    select(n, true);
   }
   function step(d) { if (revealed) return; const i = nextOpen(active, d); if (i >= 0) select(i, true); }
   function accept() {
@@ -67,8 +81,9 @@ function gridGame(api) {
     t.classList.remove('active'); t.classList.add('done');
     t.querySelector('.lbl').textContent = answerText(id, kind);
     count(); help.clear();
-    if (found.size === ids.length) { input.value = ''; input.blur(); api.done(); return; }
-    select(nextOpen(active, 1), true);
+    const n = nextOpen(active, 1);
+    if (n < 0) { input.value = ''; input.blur(); api.done(); return; }
+    select(n, true);
   }
   // Right answer → accepted the moment it's typed. Enter on a wrong answer just shakes (it never skips).
   input.addEventListener('input', () => {

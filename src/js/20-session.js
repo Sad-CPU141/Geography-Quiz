@@ -15,9 +15,11 @@ function loadMap() {
   return mapLoading;
 }
 
-function startSession(cfg, players, challenge, daily) {
+function startSession(cfg, players, challenge, daily, practice) {
   S.challenge = null;
-  S.session = { cfg, players, idx: 0, scores: [], challenge, help: !!S.setup.help, daily: daily != null ? daily : null };
+  // Practice: board runs you started yourself (never a daily or a friend's challenge), or a misses drill.
+  const pr = practice != null ? practice : !!S.setup.practice && cfg.kind === 'board' && daily == null && !challenge;
+  S.session = { cfg, players, idx: 0, scores: [], challenge, help: !!S.setup.help, daily: daily != null ? daily : null, practice: pr };
   if (cfg.kind === 'board') {
     S.session.board = makeBoard(cfg);
     if (cfg.games.some((g) => g === 'flags' || g === 'flagmap' || g === 'duel')) preloadFlags(pool(cfg.region));
@@ -29,13 +31,8 @@ function startSession(cfg, players, challenge, daily) {
   cover();
 }
 function howTo(cfg) {
-  if (cfg.kind === 'quick') return cfg.count + ' questions, one at a time. ' + (cfg.style === 'type' ? 'Type each answer; it moves on by itself. Skip adds 10 seconds.' : 'Tap the right answer. A wrong tap adds 5 seconds.');
-  const board = makeBoard(cfg);
-  const what = { flags: (n) => 'name ' + n + ' flags', map: (n) => 'find ' + n + ' countries on the map', capitals: (n) => 'name ' + n + ' capitals', shapes: (n) => 'name ' + n + ' outlines',
-    revcap: (n) => 'name the country for ' + n + ' capitals', mapname: (n) => 'name ' + n + ' countries lit up on the map', borders: (n, sec) => 'name ' + n + ' land borders of ' + sec.countries.length + ' countries',
-    flagmap: (n) => 'tap ' + n + ' flags\' countries on the map', duel: (n) => 'pick the bigger country ' + n + ' times' };
-  const parts = board.map((sec) => what[sec.game](sec.ids.length, sec));
-  return (board.length > 1 ? 'In this order: ' : '') + parts.join(', then ') + '. Most found wins; the faster time breaks a tie. Stuck? Give up to see what you missed.';
+  if (cfg.kind === 'quick') return cfg.count + ' ' + modeOf(cfg.mode).label.toLowerCase() + ' · ' + (cfg.style === 'type' ? 'type it' : 'pick from 4');
+  return makeBoard(cfg).map((sec) => gameOf(sec.game).em + ' ' + gameOf(sec.game).label + ' ' + sec.ids.length).join('  →  ');
 }
 function cover() {
   const se = S.session, name = se.players[se.idx], many = se.players.length > 1;
@@ -43,7 +40,7 @@ function cover() {
     h('div', { class: 'cover' },
       many ? h('p', { class: 'eyebrow' }, 'Player ' + (se.idx + 1) + ' of ' + se.players.length) : null,
       h('h2', { class: 'display', style: { fontSize: many ? '54px' : '42px' } }, many ? (se.idx ? 'Pass to ' : '') + name : 'Ready?'),
-      h('p', { class: 'muted', style: { maxWidth: '34ch' } }, howTo(se.cfg) + ' The clock starts after 3, 2, 1.'),
+      h('p', { class: 'muted', style: { maxWidth: '34ch' } }, howTo(se.cfg)),
       se.help ? h('p', { class: 'small muted' }, '💡 Spelling help is on') : null,
       se.challenge && se.challenge.time ? h('p', { class: 'badge' }, 'To beat: ' + (se.cfg.kind === 'board' && se.challenge.correct != null ? se.challenge.correct + '/' + cfgTotal(se.cfg) + ' in ' : '') + fmtTime(se.challenge.time)) : null,
       h('button', { class: 'btn primary', style: { maxWidth: '320px' }, onclick: countdown }, '▶ Go')),
@@ -73,7 +70,8 @@ function makeClock() {
   c.extra = () => 0;
   const loop = () => {
     if (c.over) return;
-    document.querySelectorAll('.timer').forEach((t) => { t.textContent = fmtTime(c.elapsed() + c.extra()); t.classList.toggle('paused', c.pauseAt != null); });
+    const practice = S.session && S.session.practice;
+    document.querySelectorAll('.timer').forEach((t) => { t.textContent = practice ? 'Practice' : fmtTime(c.elapsed() + c.extra()); t.classList.toggle('paused', c.pauseAt != null); t.classList.toggle('practice', !!practice); });
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);
@@ -84,6 +82,8 @@ function finishRun(score) {
   const se = S.session;
   score.kind = se.cfg.kind;
   se.scores.push(score);
+  store.set('gs_misses_v1', recordMisses(store.get('gs_misses_v1', {}), score));
+  if (se.practice) { result(score); return; } // practice: no best times, no daily score
   // Daily run: the first finished go of the day is the one that counts.
   if (se.daily != null && se.idx === 0) {
     const d = store.get('gs_daily_v1', {});
@@ -107,7 +107,7 @@ function playSection(R) {
   const res = { game: sec.game, kind: sec.kind, ids: sec.ids, found: [], missed: [], gaveUp: false, tries: {} };
   R.results[R.sec] = res;
   const api = {
-    R, sec, res, label: gameOf(sec.game).label, part: se.board.length > 1 ? (R.sec + 1) + '/' + se.board.length : '',
+    R, sec, res, practice: !!se.practice, label: gameOf(sec.game).label, part: se.board.length > 1 ? (R.sec + 1) + '/' + se.board.length : '',
     // Called by the game when every country is found.
     done() { R.clock.pause(); api.ui && api.ui.completed && api.ui.completed(); setTimeout(() => { R.clock.resume(); nextSection(R); }, 700); },
     giveUp: () => giveUpDialog(R, api),
@@ -119,7 +119,6 @@ function giveUpDialog(R, api) {
   const se = S.session, more = R.sec < se.board.length - 1;
   const bg = modal(
     h('h2', { class: 'display' }, 'Give up?'),
-    h('p', { class: 'small muted' }, 'You\'ll see the ones you missed. They count as not found.'),
     h('button', { class: 'btn primary small', onclick: () => { bg.remove(); reveal(R, api, false); } }, more ? 'Give up on ' + api.label + ', go on' : 'Give up and show me'),
     more ? h('button', { class: 'btn ghost small', onclick: () => { bg.remove(); reveal(R, api, true); } }, 'End the whole run') : null,
     h('button', { class: 'btn ghost small', onclick: () => bg.remove() }, 'Keep playing'));
@@ -171,7 +170,7 @@ function quickRun() {
     const skipBtn = h('button', { class: 'btn ghost skip' }, 'Skip +10s');
     const sugEl = h('div', { class: 'suggest', 'aria-live': 'polite', hidden: true });
     help = spellingHelp(input, sugEl, () => Q[R.i].kind, () => Q[R.i].id, () => done(true, 'typed'));
-    answerArea.append(h('div', { class: 'answer' }, input, skipBtn), sugEl, h('p', { class: 'hint' }, 'Spelling counts, but accents, capitals and dashes don\'t.'));
+    answerArea.append(h('div', { class: 'answer' }, input, skipBtn), sugEl);
     input.addEventListener('input', () => { if (R.busy) return; if (isRight(Q[R.i].id, Q[R.i].kind, input.value)) done(true, 'typed'); else help.update(); });
     input.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter') return; e.preventDefault();
@@ -182,7 +181,7 @@ function quickRun() {
     skipBtn.addEventListener('click', () => { if (!R.busy) { done(false, 'skip'); input.focus(); } });
   } else {
     choicesEl = h('div', { class: 'choices' });
-    answerArea.append(choicesEl, h('p', { class: 'hint' }, 'On a keyboard: 1 2 3 4'));
+    answerArea.append(choicesEl);
   }
   const quit = h('button', { class: 'iconbtn', 'aria-label': 'Stop the run', onclick: () => { if (confirm('Stop this run? It won\'t count.')) { clock.over = true; home(); } } }, '✕');
   mount(h('div', { class: 'app run' },
